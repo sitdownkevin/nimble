@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import time
 from importlib.metadata import version
 from pathlib import Path
@@ -15,7 +16,7 @@ from transformers.modeling_outputs import SequenceClassifierOutput
 
 from nimble.scoring.parallel_schema import MODEL_ID, REVISION, SYSTEM_PROMPT, choice_key, prepare_prompts
 from nimble.training.model_loading import load_base
-from nimble.training.schema_data import prepare_data, resolve_checkpoint
+from nimble.training.schema_data import prepare_cv_data, prepare_data, resolve_checkpoint
 
 MAX_CHOICES = 26
 
@@ -86,6 +87,16 @@ def decision_result(row, logits):
     return result
 
 
+def expected_calibration_error(rows, bins=10):
+    buckets = [[] for _ in range(bins)]
+    for r in rows:
+        p = max(r["probabilities"].values())
+        idx = min(bins - 1, int(p * bins))
+        buckets[idx].append((p, 1.0 if r["correct"] else 0.0))
+    n = len(rows)
+    return sum((len(b) / n) * abs(sum(x[0] for x in b) / len(b) - sum(x[1] for x in b) / len(b)) for b in buckets if b)
+
+
 def summarize(rows):
     summary = {}
     for kind in ("all", "choice", "noul", "score"):
@@ -94,10 +105,19 @@ def summarize(rows):
             continue
         group = {"count": len(selected), "correct": sum(r["correct"] for r in selected)}
         group["accuracy"] = group["correct"] / len(selected)
+        if all("probabilities" in r for r in selected):
+            group["ece"] = expected_calibration_error(selected)
         for metric in ("nll", "brier", "score_absolute_error"):
             if all(metric in r for r in selected):
                 group[metric] = sum(r[metric] for r in selected) / len(selected)
         summary[kind] = group
+    if all(r.get("pair_id") for r in rows):
+        pairs = {}
+        for r in rows:
+            pairs.setdefault(r["pair_id"], []).append(r)
+        if pairs and all(len(g) == 2 for g in pairs.values()):
+            both = sum(all(x["correct"] for x in g) for g in pairs.values())
+            summary["pairs"] = {"count": len(pairs), "both_correct": both, "accuracy": both / len(pairs)}
     return summary
 
 
@@ -109,8 +129,8 @@ def evaluate(model, data, collator, output):
         for r in data:
             batch = {k: v.to("cuda") for k, v in collator([r]).items()}
             result = decision_result(r, candidate_logits(model, batch)[0].cpu())
-            rows.append({"id": r["id"], "family": r["family"], "kind": r["kind"],
-                         "target": r["target"], **result})
+            rows.append({"id": r["id"], "family": r["family"], "pair_id": r.get("pair_id"),
+                         "kind": r["kind"], "target": r["target"], **result})
     report = {"summary": summarize(rows), "rows": rows}
     output.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
     print(json.dumps({"evaluation": output.name, "summary": report["summary"]}), flush=True)
@@ -150,6 +170,59 @@ class EpochValidation(TrainerCallback):
         return control
 
 
+def flatten_eval_summary(summary, prefix="eval"):
+    metrics = {}
+    for kind, group in summary.items():
+        for key, value in group.items():
+            if key in ("count", "correct"):
+                continue
+            metrics[f"{prefix}/{kind}/{key}"] = float(value)
+    return metrics
+
+
+class PeriodicEvalAndSwanLabCallback(TrainerCallback):
+    """Log training metrics to SwanLab and run periodic eval on the validation set."""
+    def __init__(self, validation, collator, output_dir, eval_steps=0, swanlab_mod=None):
+        self.validation = validation
+        self.collator = collator
+        self.output_dir = Path(output_dir)
+        self.eval_steps = eval_steps
+        self.swanlab = swanlab_mod
+        self.last_eval_step = -1
+        self.last_log_time = None
+        self.last_log_step = 0
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if self.swanlab is None or not logs:
+            return control
+        now = time.monotonic()
+        payload = {}
+        for k, v in logs.items():
+            if isinstance(v, (int, float)) and math.isfinite(v):
+                payload[f"train/{k}"] = float(v)
+        if self.last_log_time is not None and state.global_step > self.last_log_step:
+            dt = now - self.last_log_time
+            if dt > 0:
+                payload["train/steps_per_sec"] = (state.global_step - self.last_log_step) / dt
+        self.last_log_time = now
+        self.last_log_step = state.global_step
+        if payload:
+            self.swanlab.log(payload, step=state.global_step)
+        return control
+
+    def on_step_end(self, args, state, control, model=None, **kwargs):
+        if self.eval_steps and state.global_step > 0 and state.global_step % self.eval_steps == 0:
+            if state.global_step != self.last_eval_step and model is not None:
+                was_training = model.training
+                report = evaluate(model, self.validation, self.collator,
+                                  self.output_dir / f"step-{state.global_step}.json")
+                model.train(was_training)
+                self.last_eval_step = state.global_step
+                if self.swanlab is not None:
+                    self.swanlab.log(flatten_eval_summary(report["summary"]), step=state.global_step)
+        return control
+
+
 def train(args):
     if any(v <= 0 for v in (args.max_steps, args.learning_rate, args.batch_size, args.gradient_accumulation,
                             args.max_length, args.lora_rank, args.save_steps)):
@@ -166,7 +239,16 @@ def train(args):
     tokenizer.padding_side = "left"
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
-    training, validation, audit = prepare_data(args.data_dir, args.validation, tokenizer, args.max_length, model_id, revision)
+    if args.cv_folds > 0:
+        training, validation, audit = prepare_cv_data(
+            args.data_dir, args.validation, tokenizer, args.max_length,
+            num_folds=args.cv_folds, fold_index=args.cv_fold, cv_seed=args.cv_seed,
+            model_id=model_id, revision=revision,
+        )
+    else:
+        training, validation, audit = prepare_data(
+            args.data_dir, args.validation, tokenizer, args.max_length, model_id, revision
+        )
     prompt_hash = hashlib.sha256((Path(__file__).parents[1] / "scoring/parallel_schema.py").read_bytes()).hexdigest()
     contract = {"task": "schema_candidate_classification_v1", "model": model_id, "revision": revision,
                 "system_prompt": SYSTEM_PROMPT, "prompt_code_sha256": prompt_hash, "max_length": args.max_length,
@@ -174,6 +256,8 @@ def train(args):
                 "learning_rate": args.learning_rate, "batch_size": args.batch_size,
                 "gradient_accumulation": args.gradient_accumulation, "warmup_steps": args.warmup_steps,
                 "max_steps": args.max_steps, "lr_scheduler": "linear", "weight_decay": 0.0}
+    if args.cv_folds > 0:
+        contract.update(cv_folds=args.cv_folds, cv_fold=args.cv_fold, cv_seed=args.cv_seed)
     contract["inference_precision"] = "bf16_autocast"
     if args.eval_each_epoch or args.stop_after_epochs:
         contract.update(eval_each_epoch=args.eval_each_epoch, stop_after_epochs=args.stop_after_epochs)
@@ -196,7 +280,38 @@ def train(args):
                     gpu=torch.cuda.get_device_name(), target_modules=targets)
     (args.output_dir / "schema_config.json").write_text(json.dumps(contract, indent=2) + "\n")
     collator = CandidateCollator(tokenizer.pad_token_id)
+    swanlab_mod = None
+    if args.swanlab_project:
+        import swanlab as swanlab_mod
+        api_key = os.environ.get("SWANLAB_API_KEY")
+        if api_key:
+            swanlab_mod.login(api_key=api_key)
+        swanlab_mod.init(
+            project=args.swanlab_project,
+            experiment_name=args.swanlab_run_name or args.output_dir.name,
+            config={
+                "model": model_id,
+                "revision": revision,
+                "learning_rate": args.learning_rate,
+                "lora_rank": args.lora_rank,
+                "batch_size": args.batch_size,
+                "gradient_accumulation": args.gradient_accumulation,
+                "effective_batch_size": args.batch_size * args.gradient_accumulation,
+                "max_length": args.max_length,
+                "max_steps": args.max_steps,
+                "warmup_steps": args.warmup_steps,
+                "stop_after_epochs": args.stop_after_epochs,
+                "eval_steps": args.eval_steps,
+                "cv_folds": args.cv_folds,
+                "cv_fold": args.cv_fold if args.cv_folds > 0 else None,
+                "cv_seed": args.cv_seed if args.cv_folds > 0 else None,
+                "seed": args.seed,
+                "gpu": contract["gpu"],
+            },
+        )
     initial = evaluate(model, validation, collator, args.output_dir / "before.json") if not args.resume_from_checkpoint else None
+    if swanlab_mod is not None and initial is not None:
+        swanlab_mod.log(flatten_eval_summary(initial["summary"]), step=0)
     args_hf = TrainingArguments(
         output_dir=str(args.output_dir), max_steps=args.max_steps, learning_rate=args.learning_rate,
         per_device_train_batch_size=args.batch_size, gradient_accumulation_steps=args.gradient_accumulation,
@@ -211,6 +326,11 @@ def train(args):
     if args.eval_each_epoch or args.stop_after_epochs:
         callbacks.append(EpochValidation(validation if args.eval_each_epoch else None, collator,
                                          args.output_dir, args.stop_after_epochs))
+    periodic_cb = None
+    if args.eval_steps > 0 or swanlab_mod is not None:
+        periodic_cb = PeriodicEvalAndSwanLabCallback(validation, collator, args.output_dir,
+                                                     eval_steps=args.eval_steps, swanlab_mod=swanlab_mod)
+        callbacks.append(periodic_cb)
     trainer = CandidateTrainer(model=model, args=args_hf, train_dataset=training, data_collator=collator,
                                processing_class=tokenizer, callbacks=callbacks)
     torch.cuda.reset_peak_memory_stats()
@@ -218,6 +338,10 @@ def train(args):
     result = trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     elapsed = time.monotonic() - started
     final = evaluate(model, validation, collator, args.output_dir / "after.json")
+    if swanlab_mod is not None:
+        if periodic_cb is None or periodic_cb.last_eval_step != trainer.state.global_step:
+            swanlab_mod.log(flatten_eval_summary(final["summary"]), step=trainer.state.global_step)
+        swanlab_mod.finish()
     trainer.save_model(str(args.output_dir))
     tokenizer.save_pretrained(args.output_dir)
     trainer.save_state()
@@ -277,6 +401,12 @@ def main():
     fit.add_argument("--resume-from-checkpoint")
     fit.add_argument('--eval-each-epoch', action='store_true', help='Measure validation at complete epoch boundaries')
     fit.add_argument('--stop-after-epochs', type=int, help='Stop at an epoch boundary while retaining the max-steps LR schedule')
+    fit.add_argument('--eval-steps', type=int, default=0, help='Run validation every N optimizer steps')
+    fit.add_argument('--cv-folds', type=int, default=0, help='Enable K-fold source-family inner CV (0 = disabled)')
+    fit.add_argument('--cv-fold', type=int, default=0, help='Fold index in [0, cv-folds - 1] when --cv-folds > 0')
+    fit.add_argument('--cv-seed', type=int, default=17, help='Deterministic seed for source-family CV partitioning')
+    fit.add_argument('--swanlab-project', help='SwanLab project name for real-time logging')
+    fit.add_argument('--swanlab-run-name', help='SwanLab experiment/run name')
     predict = commands.add_parser("score")
     predict.add_argument("--adapter", type=Path, required=True)
     predict.add_argument("--context", required=True)

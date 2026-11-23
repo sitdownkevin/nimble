@@ -74,7 +74,7 @@ def runtime_record(encoded, raw):
             "labels": encoded["target_index"], "id": raw["id"],
             "kind": raw["input"]["questions"]["decision"]["type"],
             "choices": list(encoded["code_to_choice"].values()), "target": raw["reference"]["target"],
-            "family": encoded["source_family"]}
+            "family": encoded["source_family"], "pair_id": raw["family"]}
 
 
 def resolve_checkpoint(model, revision):
@@ -160,3 +160,60 @@ def prepare_data(directory, validation_path, tokenizer, max_length, model_id=MOD
              "validation_kinds": dict(Counter(r["kind"] for r in val_data)),
              "heldout_family_overlap": False, "test_split_used": False}
     return train_data, val_data, audit
+
+
+def prepare_cv_data(directory, validation_path, tokenizer, max_length, num_folds, fold_index,
+                    cv_seed=17, model_id=MODEL_ID, revision=REVISION):
+    """Verify canonical dataset integrity, then split training rows into source-family-disjoint CV folds.
+
+    The outer holdout (`validation_path`) is verified for separation and then discarded so it
+    can never enter inner training or inner validation.
+    """
+    from nimble.training.cv_split import assign_source_family_folds
+
+    if not 0 <= fold_index < num_folds:
+        raise ValueError(f"fold_index must be in [0, {num_folds - 1}], got {fold_index}")
+    train_data, _outer_val, base_audit = prepare_data(
+        directory, validation_path, tokenizer, max_length, model_id, revision
+    )
+    raw = read_rows(Path(directory) / "train.jsonl")
+    family_to_fold = assign_source_family_folds(raw, num_folds=num_folds, seed=cv_seed)
+
+    inner_train_raw, inner_val_raw = [], []
+    inner_train_data = []
+    for raw_row, rt_row in zip(raw, train_data):
+        if family_to_fold[raw_row["source_family"]] == fold_index:
+            inner_val_raw.append({**raw_row, "split": "validation"})
+        else:
+            inner_train_raw.append(raw_row)
+            inner_train_data.append(rt_row)
+
+    validate_separation(inner_train_raw, inner_val_raw)
+    inner_val_data = [
+        runtime_record(encode_scoring(as_scoring(r, False), tokenizer, max_length), r)
+        for r in inner_val_raw
+    ]
+
+    val_families = sorted({r["source_family"] for r in inner_val_raw})
+    audit = {
+        **base_audit,
+        "cv_mode": True,
+        "cv_folds": num_folds,
+        "cv_fold": fold_index,
+        "cv_seed": cv_seed,
+        "outer_holdout_touched": False,
+        "training_rows": len(inner_train_data),
+        "training_groups": len({r["family"] for r in inner_train_raw}),
+        "training_families": len({r["source_family"] for r in inner_train_raw}),
+        "validation_rows": len(inner_val_data),
+        "validation_groups": len({r["family"] for r in inner_val_raw}),
+        "validation_families": len(val_families),
+        "validation_source_families": val_families,
+        "inner_training_fingerprint": fingerprint(inner_train_raw),
+        "inner_validation_fingerprint": fingerprint(inner_val_raw),
+        "train_max_tokens": max(len(r["input_ids"]) for r in inner_train_data),
+        "validation_max_tokens": max(len(r["input_ids"]) for r in inner_val_data),
+        "training_kinds": dict(Counter(r["kind"] for r in inner_train_data)),
+        "validation_kinds": dict(Counter(r["kind"] for r in inner_val_data)),
+    }
+    return inner_train_data, inner_val_data, audit
