@@ -159,6 +159,75 @@ def render_sandwich_v2_content(context, fields, marker):
     )
 
 
+def render_sandwich_v3_content(context, fields, marker):
+    """Zero-duplication split-sandwich prompt: Task/Policy -> Clean Context -> Full Choices & Criteria.
+
+    Returns ``(content, choice_char_spans)`` where ``choice_char_spans`` maps each field index to a
+    list of ``(char_start, char_end)`` offsets inside ``content`` covering each option line.
+    """
+    parts = ["## Task & Policy\n"]
+    for field in fields:
+        parts.append(f"Field: {_sanitize_control_tokens(str(field['name']))}\n")
+        parts.append(f"Instructions: {_sanitize_control_tokens(str(field['description']))}\n")
+    parts.append("\n## Context\n")
+    parts.append(render_clean_context(context))
+    parts.append("\n\n## Choices\n")
+    cursor = sum(len(s) for s in parts)
+    choice_char_spans = []
+    for field in fields:
+        hdr = f"Field: {_sanitize_control_tokens(str(field['name']))}\n"
+        parts.append(hdr)
+        cursor += len(hdr)
+        field_spans = []
+        for ch in field["choices"]:
+            code = ch["code"]
+            val = _sanitize_control_tokens(_format_choice_value(ch["value"]))
+            desc = ch.get("description")
+            line = f"- {code} ({val}): {_sanitize_control_tokens(str(desc))}" if desc else f"- {code}: {val}"
+            c_start = cursor
+            c_end = cursor + len(line)
+            field_spans.append((c_start, c_end))
+            parts.append(line + "\n")
+            cursor += len(line) + 1
+        choice_char_spans.append(field_spans)
+    parts.append("\nRequested field: " + marker)
+    return "".join(parts), choice_char_spans
+
+
+def _char_spans_to_token_spans(tokenizer, full_text, token_ids, char_spans_in_full):
+    """Map character offsets in ``full_text`` to inclusive-exclusive token spans ``(start, end)``."""
+    n_tok = len(token_ids)
+    offsets = None
+    if callable(tokenizer):
+        try:
+            enc = tokenizer(full_text, add_special_tokens=False, return_offsets_mapping=True)
+            if "offset_mapping" in enc and len(enc["offset_mapping"]) == n_tok:
+                offsets = enc["offset_mapping"]
+        except TypeError:
+            offsets = None
+
+    spans = []
+    for cs, ce in char_spans_in_full:
+        if offsets is not None:
+            t_start = None
+            t_end = None
+            for idx, (os_, oe_) in enumerate(offsets):
+                if oe_ > cs and os_ < ce:
+                    if t_start is None:
+                        t_start = idx
+                    t_end = idx + 1
+            if t_start is None:
+                t_start = min(n_tok - 1, max(0, next((i for i, (_, oe_) in enumerate(offsets) if oe_ >= cs), n_tok - 1)))
+                t_end = min(n_tok, t_start + 1)
+        else:
+            t_start = len(tokenizer.encode(full_text[:cs], add_special_tokens=False))
+            t_end = len(tokenizer.encode(full_text[:ce], add_special_tokens=False))
+            t_start = max(0, min(t_start, n_tok - 1))
+            t_end = max(t_start + 1, min(t_end, n_tok))
+        spans.append((int(t_start), int(t_end)))
+    return spans
+
+
 @dataclass
 class PreparedPrompts:
     names: list
@@ -167,13 +236,14 @@ class PreparedPrompts:
     suffix_ids: list
     full_ids: list
     candidate_ids: list
+    option_spans: list = None
 
 
 def prepare_prompts(tokenizer, context, schema, max_input_tokens, system_role=True, prompt_format="v1"):
     validate_schema(schema)
     if not isinstance(context, str) or not context.strip():
         raise ValueError("Context must be a nonempty string.")
-    if prompt_format not in ("v1", "sandwich_v2"):
+    if prompt_format not in ("v1", "sandwich_v2", "sandwich_v3"):
         raise ValueError(f"Unsupported prompt_format: {prompt_format}")
     names = list(schema)
     choices = [choices_for(schema[name]) for name in names]
@@ -189,7 +259,10 @@ def prepare_prompts(tokenizer, context, schema, max_input_tokens, system_role=Tr
         })
     # Split a rendered chat at the final marker, keeping all chat control tokens intact.
     marker = "__PARALLEL_FIELD_TARGET__"
-    if prompt_format == "sandwich_v2":
+    choice_char_spans = None
+    if prompt_format == "sandwich_v3":
+        content, choice_char_spans = render_sandwich_v3_content(context, fields, marker)
+    elif prompt_format == "sandwich_v2":
         content = render_sandwich_v2_content(context, fields, marker)
     else:
         content = safe_json({"context": context, "schema": fields}) + "\n\nRequested field: " + marker
@@ -225,4 +298,13 @@ def prepare_prompts(tokenizer, context, schema, max_input_tokens, system_role=Tr
         if len(set(codes)) != len(codes):
             raise ValueError("Choice codes must have distinct token IDs.")
         candidates.append(codes)
-    return PreparedPrompts(names, choices, prefix, [ids[len(prefix):] for ids in full_ids], full_ids, candidates)
+    option_spans = None
+    if choice_char_spans is not None:
+        content_offset = template.find(content)
+        if content_offset < 0:
+            raise RuntimeError("Rendered content not found inside chat template for option span alignment.")
+        option_spans = []
+        for i, (prompt, ids) in enumerate(zip(prompts, full_ids)):
+            shifted = [(content_offset + cs, content_offset + ce) for cs, ce in choice_char_spans[i]]
+            option_spans.append(_char_spans_to_token_spans(tokenizer, prompt, ids, shifted))
+    return PreparedPrompts(names, choices, prefix, [ids[len(prefix):] for ids in full_ids], full_ids, candidates, option_spans)

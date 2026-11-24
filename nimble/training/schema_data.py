@@ -29,21 +29,30 @@ def is_ordered_or_boolean(field):
 
 
 def encode_scoring(row, tokenizer, max_length, shuffle_seed=None,
-                   preserve_ordered_kinds=False, sync_pair_shuffle=False, prompt_format="v1"):
+                   preserve_ordered_kinds=False, sync_pair_shuffle=False, prompt_format="v1",
+                   cyclic_shift=0):
     schema = json.loads(json.dumps(row["schema"]))
     field = schema[row["field"]]
-    if shuffle_seed is not None and not (preserve_ordered_kinds and is_ordered_or_boolean(field)):
+    if cyclic_shift and not is_ordered_or_boolean(field):
+        n_c = len(field["choices"])
+        shift = cyclic_shift % n_c
+        if shift:
+            field["choices"] = field["choices"][shift:] + field["choices"][:shift]
+    elif shuffle_seed is not None and not (preserve_ordered_kinds and is_ordered_or_boolean(field)):
         key = row["group_id"] if sync_pair_shuffle else row["id"]
         random.Random(f"{shuffle_seed}:{key}").shuffle(field["choices"])
     prompt = prepare_prompts(tokenizer, row["context"], schema, max_length, prompt_format=prompt_format)
     i = prompt.names.index(row["field"])
     keys = [choice_key(v) for v in prompt.choices[i]]
     target_index = keys.index(choice_key(row["target"]))
-    return {"id": row["id"], "group_id": row["group_id"], "source_family": row["source_family"],
-            "prompt_token_ids": prompt.full_ids[i], "candidate_token_ids": prompt.candidate_ids[i],
-            "target_index": target_index, "target_token_id": prompt.candidate_ids[i][target_index],
-            "code_to_choice": dict(zip("ABCDEFGHIJKLMNOPQRSTUVWXYZ", prompt.choices[i])),
-            "loss": "candidate_cross_entropy_at_last_prompt_position"}
+    out = {"id": row["id"], "group_id": row["group_id"], "source_family": row["source_family"],
+           "prompt_token_ids": prompt.full_ids[i], "candidate_token_ids": prompt.candidate_ids[i],
+           "target_index": target_index, "target_token_id": prompt.candidate_ids[i][target_index],
+           "code_to_choice": dict(zip("ABCDEFGHIJKLMNOPQRSTUVWXYZ", prompt.choices[i])),
+           "loss": "candidate_cross_entropy_at_last_prompt_position"}
+    if prompt.option_spans is not None:
+        out["option_spans"] = prompt.option_spans[i]
+    return out
 
 
 def as_scoring(row, training):
@@ -80,11 +89,14 @@ def validate_separation(training, validation):
 
 
 def runtime_record(encoded, raw):
-    return {"input_ids": encoded["prompt_token_ids"], "candidate_ids": encoded["candidate_token_ids"],
-            "labels": encoded["target_index"], "id": raw["id"],
-            "kind": raw["input"]["questions"]["decision"]["type"],
-            "choices": list(encoded["code_to_choice"].values()), "target": raw["reference"]["target"],
-            "family": encoded["source_family"], "pair_id": raw["family"]}
+    rec = {"input_ids": encoded["prompt_token_ids"], "candidate_ids": encoded["candidate_token_ids"],
+           "labels": encoded["target_index"], "id": raw["id"],
+           "kind": raw["input"]["questions"]["decision"]["type"],
+           "choices": list(encoded["code_to_choice"].values()), "target": raw["reference"]["target"],
+           "family": encoded["source_family"], "pair_id": raw["family"]}
+    if "option_spans" in encoded:
+        rec["option_spans"] = encoded["option_spans"]
+    return rec
 
 
 def resolve_checkpoint(model, revision):
@@ -175,7 +187,7 @@ def prepare_data(directory, validation_path, tokenizer, max_length, model_id=MOD
 def prepare_cv_data(directory, validation_path, tokenizer, max_length, num_folds, fold_index,
                     cv_seed=17, model_id=MODEL_ID, revision=REVISION,
                     preserve_ordered_kinds=False, sync_pair_shuffle=False, return_raw_train=False,
-                    prompt_format="v1"):
+                    prompt_format="v1", return_raw_val=False):
     """Verify canonical dataset integrity, then split training rows into source-family-disjoint CV folds.
 
     The outer holdout (`validation_path`) is verified for separation and then discarded so it
@@ -243,6 +255,10 @@ def prepare_cv_data(directory, validation_path, tokenizer, max_length, num_folds
         "training_kinds": dict(Counter(r["kind"] for r in inner_train_data)),
         "validation_kinds": dict(Counter(r["kind"] for r in inner_val_data)),
     }
+    if return_raw_train and return_raw_val:
+        return inner_train_data, inner_val_data, audit, inner_train_raw, inner_val_raw
     if return_raw_train:
         return inner_train_data, inner_val_data, audit, inner_train_raw
+    if return_raw_val:
+        return inner_train_data, inner_val_data, audit, inner_val_raw
     return inner_train_data, inner_val_data, audit
