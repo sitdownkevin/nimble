@@ -29,13 +29,13 @@ def is_ordered_or_boolean(field):
 
 
 def encode_scoring(row, tokenizer, max_length, shuffle_seed=None,
-                   preserve_ordered_kinds=False, sync_pair_shuffle=False):
+                   preserve_ordered_kinds=False, sync_pair_shuffle=False, prompt_format="v1"):
     schema = json.loads(json.dumps(row["schema"]))
     field = schema[row["field"]]
     if shuffle_seed is not None and not (preserve_ordered_kinds and is_ordered_or_boolean(field)):
         key = row["group_id"] if sync_pair_shuffle else row["id"]
         random.Random(f"{shuffle_seed}:{key}").shuffle(field["choices"])
-    prompt = prepare_prompts(tokenizer, row["context"], schema, max_length)
+    prompt = prepare_prompts(tokenizer, row["context"], schema, max_length, prompt_format=prompt_format)
     i = prompt.names.index(row["field"])
     keys = [choice_key(v) for v in prompt.choices[i]]
     target_index = keys.index(choice_key(row["target"]))
@@ -174,7 +174,8 @@ def prepare_data(directory, validation_path, tokenizer, max_length, model_id=MOD
 
 def prepare_cv_data(directory, validation_path, tokenizer, max_length, num_folds, fold_index,
                     cv_seed=17, model_id=MODEL_ID, revision=REVISION,
-                    preserve_ordered_kinds=False, sync_pair_shuffle=False, return_raw_train=False):
+                    preserve_ordered_kinds=False, sync_pair_shuffle=False, return_raw_train=False,
+                    prompt_format="v1"):
     """Verify canonical dataset integrity, then split training rows into source-family-disjoint CV folds.
 
     The outer holdout (`validation_path`) is verified for separation and then discarded so it
@@ -199,12 +200,13 @@ def prepare_cv_data(directory, validation_path, tokenizer, max_length, num_folds
             inner_val_raw.append({**raw_row, "split": "validation"})
         else:
             inner_train_raw.append(raw_row)
-            if preserve_ordered_kinds or sync_pair_shuffle:
+            if preserve_ordered_kinds or sync_pair_shuffle or prompt_format != "v1":
                 enc = encode_scoring(
                     as_scoring(raw_row, True), tokenizer, max_length,
                     shuffle_seed=shuffle_seed,
                     preserve_ordered_kinds=preserve_ordered_kinds,
                     sync_pair_shuffle=sync_pair_shuffle,
+                    prompt_format=prompt_format,
                 )
                 inner_train_data.append(runtime_record(enc, raw_row))
             else:
@@ -212,7 +214,7 @@ def prepare_cv_data(directory, validation_path, tokenizer, max_length, num_folds
 
     validate_separation(inner_train_raw, inner_val_raw)
     inner_val_data = [
-        runtime_record(encode_scoring(as_scoring(r, False), tokenizer, max_length), r)
+        runtime_record(encode_scoring(as_scoring(r, False), tokenizer, max_length, prompt_format=prompt_format), r)
         for r in inner_val_raw
     ]
 
@@ -223,6 +225,7 @@ def prepare_cv_data(directory, validation_path, tokenizer, max_length, num_folds
         "cv_folds": num_folds,
         "cv_fold": fold_index,
         "cv_seed": cv_seed,
+        "prompt_format": prompt_format,
         "preserve_ordered_kinds": preserve_ordered_kinds,
         "sync_pair_shuffle": sync_pair_shuffle,
         "outer_holdout_touched": False,

@@ -15,6 +15,14 @@ from transformers import AutoTokenizer, Trainer, TrainerCallback, TrainingArgume
 from transformers.modeling_outputs import SequenceClassifierOutput
 
 from nimble.scoring.parallel_schema import MODEL_ID, REVISION, SYSTEM_PROMPT, choice_key, prepare_prompts
+from nimble.training.deltanet_ema import (
+    EMACallback,
+    ParameterEMA,
+    evaluate_lodo_temperature_calibration,
+    load_extra_trainable_params,
+    save_extra_trainable_params,
+    unlock_deltanet_parameters,
+)
 from nimble.training.model_loading import load_base
 from nimble.training.pair_contrastive import PairBatchSampler, pairwise_flip_loss
 from nimble.training.schema_data import (
@@ -87,13 +95,16 @@ def candidate_logits(model, inputs, fp32_candidate_head=False):
 
 class CandidateTrainer(Trainer):
     def __init__(self, *args, fp32_candidate_head=False, pair_batch_sampling=False,
-                 flip_loss_weight=0.0, flip_margin=2.0, **kwargs):
+                 pair_sampling_mode="length_bucket", flip_loss_weight=0.0, flip_margin=2.0,
+                 flip_multiclass_only=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.model_accepts_loss_kwargs = False
         self.fp32_candidate_head = fp32_candidate_head
         self.pair_batch_sampling = pair_batch_sampling
+        self.pair_sampling_mode = pair_sampling_mode
         self.flip_loss_weight = flip_loss_weight
         self.flip_margin = flip_margin
+        self.flip_multiclass_only = flip_multiclass_only
         self._last_ce_loss = None
         self._last_flip_loss = None
 
@@ -104,6 +115,7 @@ class CandidateTrainer(Trainer):
             self.train_dataset,
             batch_size=self.args.per_device_train_batch_size,
             seed=self.args.data_seed if self.args.data_seed is not None else self.args.seed,
+            sampling_mode=getattr(self, "pair_sampling_mode", "length_bucket"),
         )
         return torch.utils.data.DataLoader(
             self.train_dataset,
@@ -119,13 +131,16 @@ class CandidateTrainer(Trainer):
         weights = inputs.get("sample_weights")
         if weights is not None:
             w = weights.to(per_row_ce.device)
-            ce_loss = (per_row_ce * w).sum() / w.sum().clamp_min(1e-8)
+            ce_loss = (per_row_ce * w).mean()
         else:
             ce_loss = per_row_ce.mean()
         flip_w = getattr(self, "flip_loss_weight", 0.0)
         if flip_w > 0 and "pair_group_ids" in inputs:
-            f_loss = pairwise_flip_loss(logits, inputs["labels"], inputs["pair_group_ids"],
-                                        margin=getattr(self, "flip_margin", 2.0))
+            f_loss = pairwise_flip_loss(
+                logits, inputs["labels"], inputs["pair_group_ids"],
+                margin=getattr(self, "flip_margin", 2.0),
+                multiclass_only=getattr(self, "flip_multiclass_only", False),
+            )
             loss = ce_loss + flip_w * f_loss
             if self is not None:
                 self._last_ce_loss = float(ce_loss.detach().item())
@@ -144,13 +159,14 @@ class DynamicChoiceDataset(torch.utils.data.Dataset):
     """Keeps ordered/boolean rows cached while dynamically reshuffling choice rows per epoch."""
 
     def __init__(self, records, raw_rows, tokenizer, max_length, base_seed,
-                 preserve_ordered_kinds=True, sync_pair_shuffle=True):
+                 preserve_ordered_kinds=True, sync_pair_shuffle=True, prompt_format="v1"):
         self.records = list(records)
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.base_seed = base_seed
         self.preserve_ordered_kinds = preserve_ordered_kinds
         self.sync_pair_shuffle = sync_pair_shuffle
+        self.prompt_format = prompt_format
         self.choice_items = [
             (idx, as_scoring(raw, True), raw)
             for idx, (rec, raw) in enumerate(zip(self.records, raw_rows))
@@ -170,6 +186,7 @@ class DynamicChoiceDataset(torch.utils.data.Dataset):
                 shuffle_seed=epoch_seed,
                 preserve_ordered_kinds=self.preserve_ordered_kinds,
                 sync_pair_shuffle=self.sync_pair_shuffle,
+                prompt_format=self.prompt_format,
             )
             self.records[idx] = runtime_record(enc, raw_row)
 
@@ -267,12 +284,15 @@ def evaluate(model, data, collator, output, fp32_candidate_head=False, eval_batc
 
 
 class SaveSchemaContract(TrainerCallback):
-    def __init__(self, contract):
+    def __init__(self, contract, save_extra_params=False):
         self.contract = contract
+        self.save_extra_params = save_extra_params
 
-    def on_save(self, args, state, control, **kwargs):
-        path = Path(args.output_dir) / f"checkpoint-{state.global_step}" / "schema_config.json"
-        path.write_text(json.dumps(self.contract, indent=2) + "\n")
+    def on_save(self, args, state, control, model=None, **kwargs):
+        ckpt_dir = Path(args.output_dir) / f"checkpoint-{state.global_step}"
+        (ckpt_dir / "schema_config.json").write_text(json.dumps(self.contract, indent=2) + "\n")
+        if self.save_extra_params and model is not None:
+            save_extra_trainable_params(model, ckpt_dir)
 
 
 class EpochValidation(TrainerCallback):
@@ -388,13 +408,14 @@ def train(args):
             preserve_ordered_kinds=args.preserve_ordered_kinds,
             sync_pair_shuffle=sync_pairs,
             return_raw_train=True,
+            prompt_format=args.prompt_format,
         )
     else:
         training, validation, audit = prepare_data(
             args.data_dir, args.validation, tokenizer, args.max_length, model_id, revision
         )
         raw_train_rows = read_rows(args.data_dir / "train.jsonl")
-        if args.preserve_ordered_kinds or sync_pairs:
+        if args.preserve_ordered_kinds or sync_pairs or args.prompt_format != "v1":
             manifest = json.loads((args.data_dir / "manifest.json").read_text())
             s_seed = manifest.get("tokenization_reference", {}).get("shuffle_seed", args.seed)
             training = [
@@ -404,16 +425,30 @@ def train(args):
                         shuffle_seed=s_seed,
                         preserve_ordered_kinds=args.preserve_ordered_kinds,
                         sync_pair_shuffle=sync_pairs,
+                        prompt_format=args.prompt_format,
                     ),
                     r,
                 )
                 for r in raw_train_rows
             ]
+        if args.prompt_format != "v1":
+            raw_val_rows = read_rows(args.validation)
+            validation = [
+                runtime_record(
+                    encode_scoring(as_scoring(r, False), tokenizer, args.max_length, prompt_format=args.prompt_format),
+                    r,
+                )
+                for r in raw_val_rows
+            ]
+            audit["prompt_format"] = args.prompt_format
+            audit["train_max_tokens"] = max(len(r["input_ids"]) for r in training)
+            audit["validation_max_tokens"] = max(len(r["input_ids"]) for r in validation)
     dynamic_ds = None
     if args.dynamic_choice_shuffle:
         dynamic_ds = DynamicChoiceDataset(
             training, raw_train_rows, tokenizer, args.max_length, base_seed=args.seed,
             preserve_ordered_kinds=args.preserve_ordered_kinds, sync_pair_shuffle=True,
+            prompt_format=args.prompt_format,
         )
         training = dynamic_ds
     prompt_hash = hashlib.sha256((Path(__file__).parents[1] / "scoring/parallel_schema.py").read_bytes()).hexdigest()
@@ -423,6 +458,8 @@ def train(args):
                 "learning_rate": args.learning_rate, "batch_size": args.batch_size,
                 "gradient_accumulation": args.gradient_accumulation, "warmup_steps": args.warmup_steps,
                 "max_steps": args.max_steps, "lr_scheduler": args.lr_scheduler, "weight_decay": args.weight_decay}
+    if args.prompt_format != "v1":
+        contract["prompt_format"] = args.prompt_format
     if args.cv_folds > 0:
         contract.update(cv_folds=args.cv_folds, cv_fold=args.cv_fold, cv_seed=args.cv_seed)
     if args.preserve_ordered_kinds:
@@ -431,6 +468,10 @@ def train(args):
         contract["dynamic_choice_shuffle"] = True
     if args.fp32_candidate_head:
         contract["fp32_candidate_head"] = True
+    if args.unlock_deltanet:
+        contract["unlock_deltanet"] = True
+    if args.ema_decay > 0:
+        contract["ema_decay"] = args.ema_decay
     contract["inference_precision"] = "fp32_candidate_head" if args.fp32_candidate_head else "bf16_autocast"
     if args.eval_each_epoch or args.stop_after_epochs:
         contract.update(eval_each_epoch=args.eval_each_epoch, stop_after_epochs=args.stop_after_epochs)
@@ -451,6 +492,12 @@ def train(args):
         raise RuntimeError("No language linear layers matched")
     model = get_peft_model(base, LoraConfig(r=args.lora_rank, lora_alpha=2 * args.lora_rank,
                                           lora_dropout=.05, target_modules=targets, bias="none", task_type="CAUSAL_LM"))
+    unlocked_names, unlocked_scalars = [], 0
+    if args.unlock_deltanet:
+        unlocked_names, unlocked_scalars = unlock_deltanet_parameters(model)
+        print(f"Unlocked {len(unlocked_names)} DeltaNet/RMSNorm tensors ({unlocked_scalars:,} params)", flush=True)
+        contract["unlocked_deltanet_tensors"] = len(unlocked_names)
+        contract["unlocked_deltanet_params"] = unlocked_scalars
     model.print_trainable_parameters()
     contract.update(versions={p: version(p) for p in ("torch", "transformers", "peft", "accelerate")},
                     gpu=torch.cuda.get_device_name(), target_modules=targets)
@@ -468,6 +515,7 @@ def train(args):
             config={
                 "model": model_id,
                 "revision": revision,
+                "prompt_format": args.prompt_format,
                 "learning_rate": args.learning_rate,
                 "lr_scheduler": args.lr_scheduler,
                 "weight_decay": args.weight_decay,
@@ -488,8 +536,14 @@ def train(args):
                 "fp32_candidate_head": args.fp32_candidate_head,
                 "drop_vision": args.drop_vision,
                 "pair_batch_sampling": args.pair_batch_sampling,
+                "pair_sampling_mode": args.pair_sampling_mode,
                 "flip_loss_weight": args.flip_loss_weight,
                 "flip_margin": args.flip_margin,
+                "flip_multiclass_only": args.flip_multiclass_only,
+                "unlock_deltanet": args.unlock_deltanet,
+                "unlocked_deltanet_tensors": len(unlocked_names),
+                "unlocked_deltanet_params": unlocked_scalars,
+                "ema_decay": args.ema_decay,
                 "seed": args.seed,
                 "gpu": contract["gpu"],
             },
@@ -509,7 +563,11 @@ def train(args):
         seed=args.seed, data_seed=args.seed, dataloader_num_workers=0, max_grad_norm=1.,
         optim="adamw_torch", logging_nan_inf_filter=False,
     )
-    callbacks = [SaveSchemaContract(contract)]
+    callbacks = [SaveSchemaContract(contract, save_extra_params=args.unlock_deltanet)]
+    ema = None
+    if args.ema_decay > 0:
+        ema = ParameterEMA(model, decay=args.ema_decay, warmup_steps=args.warmup_steps)
+        callbacks.append(EMACallback(ema))
     if dynamic_ds is not None:
         callbacks.append(DynamicShuffleCallback(dynamic_ds))
     if args.eval_each_epoch or args.stop_after_epochs:
@@ -528,8 +586,10 @@ def train(args):
                                processing_class=tokenizer, callbacks=callbacks,
                                fp32_candidate_head=args.fp32_candidate_head,
                                pair_batch_sampling=args.pair_batch_sampling,
+                               pair_sampling_mode=args.pair_sampling_mode,
                                flip_loss_weight=args.flip_loss_weight,
-                               flip_margin=args.flip_margin)
+                               flip_margin=args.flip_margin,
+                               flip_multiclass_only=args.flip_multiclass_only)
     torch.cuda.reset_peak_memory_stats()
     started = time.monotonic()
     result = trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
@@ -537,14 +597,40 @@ def train(args):
     # Always run final evaluation unpadded (batch_size=1) for exact apples-to-apples comparison.
     final = evaluate(model, validation, collator, args.output_dir / "after.json",
                      fp32_candidate_head=args.fp32_candidate_head, eval_batch_size=1)
+    cal_report = {"raw": evaluate_lodo_temperature_calibration(final["rows"], summarize)}
+    final_ema = None
+    if ema is not None:
+        with ema.apply_to(model):
+            final_ema = evaluate(model, validation, collator, args.output_dir / "after_ema.json",
+                                 fp32_candidate_head=args.fp32_candidate_head, eval_batch_size=1)
+            ema_dir = args.output_dir / "ema_adapter"
+            ema_dir.mkdir(parents=True, exist_ok=True)
+            model.save_pretrained(str(ema_dir))
+            tokenizer.save_pretrained(ema_dir)
+            (ema_dir / "schema_config.json").write_text(json.dumps(contract, indent=2) + "\n")
+            if args.unlock_deltanet:
+                save_extra_trainable_params(model, ema_dir)
+        cal_report["ema"] = evaluate_lodo_temperature_calibration(final_ema["rows"], summarize)
+    (args.output_dir / "calibration_report.json").write_text(json.dumps(cal_report, indent=2) + "\n")
     if swanlab_mod is not None:
         if periodic_cb is None or periodic_cb.last_eval_step != trainer.state.global_step:
             swanlab_mod.log(flatten_eval_summary(final["summary"]), step=trainer.state.global_step)
+        if final_ema is not None:
+            swanlab_mod.log(flatten_eval_summary(final_ema["summary"], prefix="eval_ema"),
+                            step=trainer.state.global_step)
+        if cal_report["raw"] is not None:
+            swanlab_mod.log(flatten_eval_summary(cal_report["raw"]["lodo_calibrated_summary"], prefix="eval_cal"),
+                            step=trainer.state.global_step)
         swanlab_mod.finish()
     trainer.save_model(str(args.output_dir))
+    if args.unlock_deltanet:
+        save_extra_trainable_params(model, args.output_dir)
     tokenizer.save_pretrained(args.output_dir)
     trainer.save_state()
     report = {"before": initial["summary"] if initial else None, "after": final["summary"],
+              "after_ema": final_ema["summary"] if final_ema else None,
+              "lodo_calibrated_raw": cal_report["raw"]["lodo_calibrated_summary"] if cal_report["raw"] else None,
+              "lodo_calibrated_ema": cal_report["ema"]["lodo_calibrated_summary"] if cal_report.get("ema") else None,
               "training": result.metrics, "optimizer_steps": trainer.state.global_step,
               "training_wall_seconds": elapsed, "peak_gpu_allocated_gib": torch.cuda.max_memory_allocated() / 1024**3,
               "limitations": ["Model-generated, non-human-reviewed labels", f"Only {len(validation)} exploratory validation examples",
@@ -565,9 +651,15 @@ def score(args):
         raise ValueError("Saved adapter task or prompt implementation differs")
     tokenizer = AutoTokenizer.from_pretrained(args.adapter)
     schema = json.loads(args.schema_file.read_text())
-    prepared = prepare_prompts(tokenizer, args.context, schema, contract["max_length"])
+    prepared = prepare_prompts(
+        tokenizer, args.context, schema, contract["max_length"],
+        prompt_format=contract.get("prompt_format", "v1"),
+    )
     model = PeftModel.from_pretrained(load_base(contract["model"], contract["revision"]), args.adapter).eval()
+    if contract.get("unlock_deltanet"):
+        load_extra_trainable_params(model, args.adapter)
     collator = CandidateCollator(tokenizer.pad_token_id)
+    fp32_head = bool(contract.get("fp32_candidate_head", False))
     fields = {}
     with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
         for i, name in enumerate(prepared.names):
@@ -575,7 +667,7 @@ def score(args):
             if schema[name]["type"] == "boolean":
                 row["kind"] = "noul"
             batch = {k: v.to("cuda") for k, v in collator([row]).items()}
-            fields[name] = decision_result(row, candidate_logits(model, batch)[0].cpu())
+            fields[name] = decision_result(row, candidate_logits(model, batch, fp32_candidate_head=fp32_head)[0].cpu())
     print(json.dumps({"output": {name: r["prediction"] for name, r in fields.items()}, "fields": fields}, indent=2))
 
 
@@ -611,9 +703,16 @@ def main():
     fit.add_argument('--dynamic-choice-shuffle', action='store_true', help='Pair-synchronized per-epoch shuffling for choice rows')
     fit.add_argument('--fp32-candidate-head', action='store_true', help='Project only candidate rows in exact FP32 (matching CudaCandidateScorer)')
     fit.add_argument('--drop-vision', action='store_true', help='Delete unused vision encoder before LoRA wrapping')
-    fit.add_argument('--pair-batch-sampling', action='store_true', help='Co-batch contrastive pairs with length bucketing')
+    fit.add_argument('--prompt-format', default='v1', choices=['v1', 'sandwich_v2'],
+                     help='Prompt layout: v1 (original JSON) or sandwich_v2 (schema-first, clean de-escaped context, tail anchor)')
+    fit.add_argument('--pair-batch-sampling', action='store_true', help='Co-batch contrastive pairs')
+    fit.add_argument('--pair-sampling-mode', default='length_bucket', choices=['length_bucket', 'stratified'],
+                     help='PairBatchSampler ordering: length_bucket or kind-stratified')
     fit.add_argument('--flip-loss-weight', type=float, default=0.0, help='Weight for bidirectional pairwise log-odds flip loss')
     fit.add_argument('--flip-margin', type=float, default=2.0, help='Target average per-sibling log-odds margin for flip loss')
+    fit.add_argument('--flip-multiclass-only', action='store_true', help='Apply flip loss only to K>=3 (choice/score) pairs')
+    fit.add_argument('--unlock-deltanet', action='store_true', help='Unfreeze Gated DeltaNet A_log/dt_bias/conv1d and RMSNorm parameters')
+    fit.add_argument('--ema-decay', type=float, default=0.0, help='FP32 EMA decay over trainable params (0 disables EMA)')
     fit.add_argument('--swanlab-project', help='SwanLab project name for real-time logging')
     fit.add_argument('--swanlab-run-name', help='SwanLab experiment/run name')
     predict = commands.add_parser("score")

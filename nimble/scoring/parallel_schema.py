@@ -74,6 +74,91 @@ def safe_json(value):
     return json.dumps(value, ensure_ascii=False, allow_nan=False).replace("<", "\\u003c").replace(">", "\\u003e")
 
 
+def _sanitize_control_tokens(text):
+    return (
+        text.replace("<|", "\\u003c|")
+            .replace("|>", "|\\u003e")
+            .replace("<think>", "\\u003cthink\\u003e")
+            .replace("</think>", "\\u003c/think\\u003e")
+    )
+
+
+def _render_structured(obj, indent=0):
+    pad = " " * indent
+    if isinstance(obj, list):
+        if obj and all(isinstance(x, dict) and set(x.keys()) == {"speaker", "text"}
+                       and isinstance(x["speaker"], str) and isinstance(x["text"], str) for x in obj):
+            return "\n".join(f"{pad}{x['speaker']}: {x['text']}" for x in obj)
+        lines = []
+        for item in obj:
+            if isinstance(item, (dict, list)):
+                lines.append(f"{pad}-")
+                lines.append(_render_structured(item, indent + 2))
+            else:
+                lines.append(f"{pad}- {item}")
+        return "\n".join(lines)
+    if isinstance(obj, dict):
+        lines = []
+        for k, v in obj.items():
+            if isinstance(v, (dict, list)):
+                lines.append(f"{pad}{k}:")
+                lines.append(_render_structured(v, indent + 2))
+            else:
+                lines.append(f"{pad}{k}: {v}")
+        return "\n".join(lines)
+    return f"{pad}{obj}"
+
+
+def render_clean_context(context):
+    """De-escape JSON-serialized dict/list contexts into clean structured text without backslash noise."""
+    stripped = context.lstrip()
+    rendered = context
+    if stripped.startswith(("{", "[")):
+        try:
+            parsed = json.loads(context)
+        except (ValueError, TypeError):
+            parsed = None
+        if isinstance(parsed, (dict, list)):
+            rendered = _render_structured(parsed)
+    return _sanitize_control_tokens(rendered)
+
+
+def _format_choice_value(value):
+    return str(value).lower() if isinstance(value, bool) else str(value)
+
+
+def render_sandwich_v2_content(context, fields, marker):
+    """Schema-first, clean-context, tail-anchor prompt tailored for Gated DeltaNet + ParallelScorer."""
+    schema_lines = ["## Schema"]
+    anchor_lines = ["## Answer Choices"]
+    for field in fields:
+        schema_lines.append(f"Field: {_sanitize_control_tokens(str(field['name']))}")
+        schema_lines.append(f"Instructions: {_sanitize_control_tokens(str(field['description']))}")
+        schema_lines.append("Choices:")
+        pairs = []
+        for ch in field["choices"]:
+            code = ch["code"]
+            val = _sanitize_control_tokens(_format_choice_value(ch["value"]))
+            desc = ch.get("description")
+            if desc:
+                schema_lines.append(f"- {code} ({val}): {_sanitize_control_tokens(str(desc))}")
+            else:
+                schema_lines.append(f"- {code}: {val}")
+            pairs.append(f"{code}: {val}")
+        anchor_lines.append(f"Field: {_sanitize_control_tokens(str(field['name']))}")
+        anchor_lines.append(" | ".join(pairs))
+    clean_ctx = render_clean_context(context)
+    return (
+        "\n".join(schema_lines)
+        + "\n\n## Context\n"
+        + clean_ctx
+        + "\n\n"
+        + "\n".join(anchor_lines)
+        + "\n\nRequested field: "
+        + marker
+    )
+
+
 @dataclass
 class PreparedPrompts:
     names: list
@@ -84,10 +169,12 @@ class PreparedPrompts:
     candidate_ids: list
 
 
-def prepare_prompts(tokenizer, context, schema, max_input_tokens, system_role=True):
+def prepare_prompts(tokenizer, context, schema, max_input_tokens, system_role=True, prompt_format="v1"):
     validate_schema(schema)
     if not isinstance(context, str) or not context.strip():
         raise ValueError("Context must be a nonempty string.")
+    if prompt_format not in ("v1", "sandwich_v2"):
+        raise ValueError(f"Unsupported prompt_format: {prompt_format}")
     names = list(schema)
     choices = [choices_for(schema[name]) for name in names]
     fields = []
@@ -102,7 +189,10 @@ def prepare_prompts(tokenizer, context, schema, max_input_tokens, system_role=Tr
         })
     # Split a rendered chat at the final marker, keeping all chat control tokens intact.
     marker = "__PARALLEL_FIELD_TARGET__"
-    content = safe_json({"context": context, "schema": fields}) + "\n\nRequested field: " + marker
+    if prompt_format == "sandwich_v2":
+        content = render_sandwich_v2_content(context, fields, marker)
+    else:
+        content = safe_json({"context": context, "schema": fields}) + "\n\nRequested field: " + marker
     messages = ([{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": content}]
                 if system_role else [{"role": "user", "content": SYSTEM_PROMPT + "\n\n" + content}])
     template = tokenizer.apply_chat_template(
