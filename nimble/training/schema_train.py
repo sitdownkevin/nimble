@@ -16,6 +16,7 @@ from transformers.modeling_outputs import SequenceClassifierOutput
 
 from nimble.scoring.parallel_schema import MODEL_ID, REVISION, SYSTEM_PROMPT, choice_key, prepare_prompts
 from nimble.training.model_loading import load_base
+from nimble.training.pair_contrastive import PairBatchSampler, pairwise_flip_loss
 from nimble.training.schema_data import (
     as_scoring, encode_scoring, prepare_cv_data, prepare_data, read_rows, resolve_checkpoint, runtime_record,
 )
@@ -43,6 +44,20 @@ class CandidateCollator:
         }
         if "labels" in rows[0]:
             batch["labels"] = torch.tensor([r["labels"] for r in rows])
+        if any(r.get("pair_id") for r in rows):
+            pid_map = {}
+            gids = []
+            for r in rows:
+                pid = r.get("pair_id")
+                if not pid or r.get("is_aux", False):
+                    gids.append(-1)
+                else:
+                    if pid not in pid_map:
+                        pid_map[pid] = len(pid_map)
+                    gids.append(pid_map[pid])
+            batch["pair_group_ids"] = torch.tensor(gids, dtype=torch.long)
+        if any("sample_weight" in r for r in rows):
+            batch["sample_weights"] = torch.tensor([float(r.get("sample_weight", 1.0)) for r in rows], dtype=torch.float32)
         return batch
 
 
@@ -71,14 +86,55 @@ def candidate_logits(model, inputs, fp32_candidate_head=False):
 
 
 class CandidateTrainer(Trainer):
-    def __init__(self, *args, fp32_candidate_head=False, **kwargs):
+    def __init__(self, *args, fp32_candidate_head=False, pair_batch_sampling=False,
+                 flip_loss_weight=0.0, flip_margin=2.0, **kwargs):
         super().__init__(*args, **kwargs)
         self.model_accepts_loss_kwargs = False
         self.fp32_candidate_head = fp32_candidate_head
+        self.pair_batch_sampling = pair_batch_sampling
+        self.flip_loss_weight = flip_loss_weight
+        self.flip_margin = flip_margin
+        self._last_ce_loss = None
+        self._last_flip_loss = None
+
+    def get_train_dataloader(self):
+        if not getattr(self, "pair_batch_sampling", False):
+            return super().get_train_dataloader()
+        sampler = PairBatchSampler(
+            self.train_dataset,
+            batch_size=self.args.per_device_train_batch_size,
+            seed=self.args.data_seed if self.args.data_seed is not None else self.args.seed,
+        )
+        return torch.utils.data.DataLoader(
+            self.train_dataset,
+            batch_sampler=sampler,
+            collate_fn=self.data_collator,
+            num_workers=self.args.dataloader_num_workers,
+            pin_memory=True,
+        )
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         logits = candidate_logits(model, inputs, fp32_candidate_head=getattr(self, "fp32_candidate_head", False))
-        loss = torch.nn.functional.cross_entropy(logits, inputs["labels"])
+        per_row_ce = torch.nn.functional.cross_entropy(logits, inputs["labels"], reduction="none")
+        weights = inputs.get("sample_weights")
+        if weights is not None:
+            w = weights.to(per_row_ce.device)
+            ce_loss = (per_row_ce * w).sum() / w.sum().clamp_min(1e-8)
+        else:
+            ce_loss = per_row_ce.mean()
+        flip_w = getattr(self, "flip_loss_weight", 0.0)
+        if flip_w > 0 and "pair_group_ids" in inputs:
+            f_loss = pairwise_flip_loss(logits, inputs["labels"], inputs["pair_group_ids"],
+                                        margin=getattr(self, "flip_margin", 2.0))
+            loss = ce_loss + flip_w * f_loss
+            if self is not None:
+                self._last_ce_loss = float(ce_loss.detach().item())
+                self._last_flip_loss = float(f_loss.detach().item())
+        else:
+            loss = ce_loss
+            if self is not None:
+                self._last_ce_loss = float(ce_loss.detach().item())
+                self._last_flip_loss = 0.0
         if not torch.isfinite(loss):
             raise FloatingPointError("Non-finite candidate loss")
         return (loss, SequenceClassifierOutput(loss=loss, logits=logits)) if return_outputs else loss
@@ -323,13 +379,14 @@ def train(args):
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
     raw_train_rows = None
+    sync_pairs = args.dynamic_choice_shuffle or args.pair_batch_sampling or args.flip_loss_weight > 0
     if args.cv_folds > 0:
         training, validation, audit, raw_train_rows = prepare_cv_data(
             args.data_dir, args.validation, tokenizer, args.max_length,
             num_folds=args.cv_folds, fold_index=args.cv_fold, cv_seed=args.cv_seed,
             model_id=model_id, revision=revision,
             preserve_ordered_kinds=args.preserve_ordered_kinds,
-            sync_pair_shuffle=args.dynamic_choice_shuffle,
+            sync_pair_shuffle=sync_pairs,
             return_raw_train=True,
         )
     else:
@@ -337,7 +394,7 @@ def train(args):
             args.data_dir, args.validation, tokenizer, args.max_length, model_id, revision
         )
         raw_train_rows = read_rows(args.data_dir / "train.jsonl")
-        if args.preserve_ordered_kinds or args.dynamic_choice_shuffle:
+        if args.preserve_ordered_kinds or sync_pairs:
             manifest = json.loads((args.data_dir / "manifest.json").read_text())
             s_seed = manifest.get("tokenization_reference", {}).get("shuffle_seed", args.seed)
             training = [
@@ -346,7 +403,7 @@ def train(args):
                         as_scoring(r, True), tokenizer, args.max_length,
                         shuffle_seed=s_seed,
                         preserve_ordered_kinds=args.preserve_ordered_kinds,
-                        sync_pair_shuffle=args.dynamic_choice_shuffle,
+                        sync_pair_shuffle=sync_pairs,
                     ),
                     r,
                 )
@@ -430,6 +487,9 @@ def train(args):
                 "dynamic_choice_shuffle": args.dynamic_choice_shuffle,
                 "fp32_candidate_head": args.fp32_candidate_head,
                 "drop_vision": args.drop_vision,
+                "pair_batch_sampling": args.pair_batch_sampling,
+                "flip_loss_weight": args.flip_loss_weight,
+                "flip_margin": args.flip_margin,
                 "seed": args.seed,
                 "gpu": contract["gpu"],
             },
@@ -466,13 +526,17 @@ def train(args):
         callbacks.append(periodic_cb)
     trainer = CandidateTrainer(model=model, args=args_hf, train_dataset=training, data_collator=collator,
                                processing_class=tokenizer, callbacks=callbacks,
-                               fp32_candidate_head=args.fp32_candidate_head)
+                               fp32_candidate_head=args.fp32_candidate_head,
+                               pair_batch_sampling=args.pair_batch_sampling,
+                               flip_loss_weight=args.flip_loss_weight,
+                               flip_margin=args.flip_margin)
     torch.cuda.reset_peak_memory_stats()
     started = time.monotonic()
     result = trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     elapsed = time.monotonic() - started
+    # Always run final evaluation unpadded (batch_size=1) for exact apples-to-apples comparison.
     final = evaluate(model, validation, collator, args.output_dir / "after.json",
-                     fp32_candidate_head=args.fp32_candidate_head, eval_batch_size=args.eval_batch_size)
+                     fp32_candidate_head=args.fp32_candidate_head, eval_batch_size=1)
     if swanlab_mod is not None:
         if periodic_cb is None or periodic_cb.last_eval_step != trainer.state.global_step:
             swanlab_mod.log(flatten_eval_summary(final["summary"]), step=trainer.state.global_step)
@@ -547,6 +611,9 @@ def main():
     fit.add_argument('--dynamic-choice-shuffle', action='store_true', help='Pair-synchronized per-epoch shuffling for choice rows')
     fit.add_argument('--fp32-candidate-head', action='store_true', help='Project only candidate rows in exact FP32 (matching CudaCandidateScorer)')
     fit.add_argument('--drop-vision', action='store_true', help='Delete unused vision encoder before LoRA wrapping')
+    fit.add_argument('--pair-batch-sampling', action='store_true', help='Co-batch contrastive pairs with length bucketing')
+    fit.add_argument('--flip-loss-weight', type=float, default=0.0, help='Weight for bidirectional pairwise log-odds flip loss')
+    fit.add_argument('--flip-margin', type=float, default=2.0, help='Target average per-sibling log-odds margin for flip loss')
     fit.add_argument('--swanlab-project', help='SwanLab project name for real-time logging')
     fit.add_argument('--swanlab-run-name', help='SwanLab experiment/run name')
     predict = commands.add_parser("score")
