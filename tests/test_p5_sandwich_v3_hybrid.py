@@ -80,9 +80,13 @@ class P5SandwichV3HybridTests(unittest.TestCase):
             [[3, 8], [9, 14], [0, 0], [0, 0]],
         ])
         out0 = head(h_seq, letter, spans, mask)
-        # Exact identity at step 0
+        # Exact identity at step 0 (including under bfloat16 autocast)
         self.assertEqual((out0[mask] - letter[mask]).abs().max().item(), 0.0)
         self.assertTrue(torch.isneginf(out0[~mask]).all())
+        with torch.amp.autocast(device_type="cpu", dtype=torch.bfloat16):
+            out_bf16 = head(h_seq.bfloat16(), letter, spans, mask)
+            self.assertEqual(out_bf16.dtype, torch.float32)
+            self.assertEqual((out_bf16[mask] - letter[mask]).abs().max().item(), 0.0)
 
         # Verify gradients flow through gate (step 1) and all pointer weights (step 2)
         opt = torch.optim.SGD(head.parameters(), lr=0.1)
