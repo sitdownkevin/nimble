@@ -87,7 +87,7 @@ class PairBatchSampler:
         return n_pair_batches + n_single_batches
 
 
-def pairwise_flip_loss(logits, labels, pair_group_ids, margin=2.0):
+def pairwise_flip_loss(logits, labels, pair_group_ids, margin=2.0, multiclass_only=False):
     """Bidirectional log-odds flip loss over adjacent contrastive pairs (2i, 2i+1).
 
     For a pair (b, c) with distinct targets y_b != y_c under synchronized candidate order:
@@ -107,6 +107,8 @@ def pairwise_flip_loss(logits, labels, pair_group_ids, margin=2.0):
         ya = int(labels[i].item())
         yb = int(labels[i + 1].item())
         if ya == yb:
+            continue
+        if multiclass_only and int(torch.isfinite(log_probs[i]).sum().item()) <= 2:
             continue
         # Ensure both gold indices are valid (non -inf) in both siblings.
         if not (torch.isfinite(log_probs[i, yb]) and torch.isfinite(log_probs[i + 1, ya])):

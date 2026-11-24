@@ -15,6 +15,7 @@ from transformers import AutoTokenizer, Trainer, TrainerCallback, TrainingArgume
 from transformers.modeling_outputs import SequenceClassifierOutput
 
 from nimble.scoring.parallel_schema import MODEL_ID, REVISION, SYSTEM_PROMPT, choice_key, prepare_prompts
+from nimble.training.cert_multitask import encode_cert_aux_records
 from nimble.training.model_loading import load_base
 from nimble.training.pair_contrastive import PairBatchSampler, pairwise_flip_loss
 from nimble.training.schema_data import (
@@ -87,13 +88,14 @@ def candidate_logits(model, inputs, fp32_candidate_head=False):
 
 class CandidateTrainer(Trainer):
     def __init__(self, *args, fp32_candidate_head=False, pair_batch_sampling=False,
-                 flip_loss_weight=0.0, flip_margin=2.0, **kwargs):
+                 flip_loss_weight=0.0, flip_margin=2.0, flip_multiclass_only=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.model_accepts_loss_kwargs = False
         self.fp32_candidate_head = fp32_candidate_head
         self.pair_batch_sampling = pair_batch_sampling
         self.flip_loss_weight = flip_loss_weight
         self.flip_margin = flip_margin
+        self.flip_multiclass_only = flip_multiclass_only
         self._last_ce_loss = None
         self._last_flip_loss = None
 
@@ -125,7 +127,8 @@ class CandidateTrainer(Trainer):
         flip_w = getattr(self, "flip_loss_weight", 0.0)
         if flip_w > 0 and "pair_group_ids" in inputs:
             f_loss = pairwise_flip_loss(logits, inputs["labels"], inputs["pair_group_ids"],
-                                        margin=getattr(self, "flip_margin", 2.0))
+                                        margin=getattr(self, "flip_margin", 2.0),
+                                        multiclass_only=getattr(self, "flip_multiclass_only", False))
             loss = ce_loss + flip_w * f_loss
             if self is not None:
                 self._last_ce_loss = float(ce_loss.detach().item())
@@ -165,13 +168,19 @@ class DynamicChoiceDataset(torch.utils.data.Dataset):
         self.current_epoch = epoch
         epoch_seed = f"{self.base_seed}:ep{epoch}"
         for idx, scoring_row, raw_row in self.choice_items:
+            prev = self.records[idx]
             enc = encode_scoring(
                 scoring_row, self.tokenizer, self.max_length,
                 shuffle_seed=epoch_seed,
                 preserve_ordered_kinds=self.preserve_ordered_kinds,
                 sync_pair_shuffle=self.sync_pair_shuffle,
             )
-            self.records[idx] = runtime_record(enc, raw_row)
+            updated = runtime_record(enc, raw_row)
+            if "is_aux" in prev:
+                updated["is_aux"] = prev["is_aux"]
+            if "sample_weight" in prev:
+                updated["sample_weight"] = prev["sample_weight"]
+            self.records[idx] = updated
 
     def __len__(self):
         return len(self.records)
@@ -409,6 +418,28 @@ def train(args):
                 )
                 for r in raw_train_rows
             ]
+    aux_count = 0
+    aux_skipped = 0
+    if args.cert_multitask:
+        val_families = {r["family"] for r in validation}
+        aux_records, aux_raw, aux_skipped = encode_cert_aux_records(
+            raw_train_rows, tokenizer, args.max_length, seed=args.seed, aux_weight=args.aux_loss_weight
+        )
+        if {r["family"] for r in aux_records} & val_families:
+            raise ValueError("Certificate auxiliary records overlap validation source families")
+        for r in training:
+            r["is_aux"] = False
+            r["sample_weight"] = 1.0
+        training = list(training) + aux_records
+        raw_train_rows = list(raw_train_rows) + aux_raw
+        aux_count = len(aux_records)
+        audit["cert_multitask"] = {
+            "enabled": True,
+            "aux_rows": aux_count,
+            "aux_skipped_overlength": aux_skipped,
+            "aux_loss_weight": args.aux_loss_weight,
+            "total_training_rows": len(training),
+        }
     dynamic_ds = None
     if args.dynamic_choice_shuffle:
         dynamic_ds = DynamicChoiceDataset(
@@ -490,6 +521,10 @@ def train(args):
                 "pair_batch_sampling": args.pair_batch_sampling,
                 "flip_loss_weight": args.flip_loss_weight,
                 "flip_margin": args.flip_margin,
+                "flip_multiclass_only": args.flip_multiclass_only,
+                "cert_multitask": args.cert_multitask,
+                "aux_loss_weight": args.aux_loss_weight if args.cert_multitask else 0.0,
+                "aux_rows": aux_count,
                 "seed": args.seed,
                 "gpu": contract["gpu"],
             },
@@ -529,7 +564,8 @@ def train(args):
                                fp32_candidate_head=args.fp32_candidate_head,
                                pair_batch_sampling=args.pair_batch_sampling,
                                flip_loss_weight=args.flip_loss_weight,
-                               flip_margin=args.flip_margin)
+                               flip_margin=args.flip_margin,
+                               flip_multiclass_only=args.flip_multiclass_only)
     torch.cuda.reset_peak_memory_stats()
     started = time.monotonic()
     result = trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
@@ -614,6 +650,9 @@ def main():
     fit.add_argument('--pair-batch-sampling', action='store_true', help='Co-batch contrastive pairs with length bucketing')
     fit.add_argument('--flip-loss-weight', type=float, default=0.0, help='Weight for bidirectional pairwise log-odds flip loss')
     fit.add_argument('--flip-margin', type=float, default=2.0, help='Target average per-sibling log-odds margin for flip loss')
+    fit.add_argument('--flip-multiclass-only', action='store_true', help='Apply pairwise flip loss only on K>=3 tasks (choice/score)')
+    fit.add_argument('--cert-multitask', action='store_true', help='Add in-dataset evidence_certificate auxiliary tasks (focus noul + 3-way evidence necessity)')
+    fit.add_argument('--aux-loss-weight', type=float, default=0.5, help='Sample CE weight for certificate auxiliary rows')
     fit.add_argument('--swanlab-project', help='SwanLab project name for real-time logging')
     fit.add_argument('--swanlab-run-name', help='SwanLab experiment/run name')
     predict = commands.add_parser("score")
