@@ -191,16 +191,19 @@ def summarize(rows):
     return summary
 
 
-def evaluate(model, data, collator, output, fp32_candidate_head=False):
+def evaluate(model, data, collator, output, fp32_candidate_head=False, eval_batch_size=1):
     model.eval()
     rows = []
     # Match Trainer's BF16 autocast in standalone evaluation and after reload.
     with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
-        for r in data:
-            batch = {k: v.to("cuda") for k, v in collator([r]).items()}
-            result = decision_result(r, candidate_logits(model, batch, fp32_candidate_head=fp32_candidate_head)[0].cpu())
-            rows.append({"id": r["id"], "family": r["family"], "pair_id": r.get("pair_id"),
-                         "kind": r["kind"], "target": r["target"], **result})
+        for start in range(0, len(data), eval_batch_size):
+            chunk = data[start:start + eval_batch_size]
+            batch = {k: v.to("cuda") for k, v in collator(chunk).items()}
+            logits_batch = candidate_logits(model, batch, fp32_candidate_head=fp32_candidate_head).cpu()
+            for idx, r in enumerate(chunk):
+                result = decision_result(r, logits_batch[idx])
+                rows.append({"id": r["id"], "family": r["family"], "pair_id": r.get("pair_id"),
+                             "kind": r["kind"], "target": r["target"], **result})
     report = {"summary": summarize(rows), "rows": rows}
     output.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
     print(json.dumps({"evaluation": output.name, "summary": report["summary"]}), flush=True)
@@ -218,11 +221,13 @@ class SaveSchemaContract(TrainerCallback):
 
 class EpochValidation(TrainerCallback):
     """Measure inner validation after full epochs without consulting outer eval."""
-    def __init__(self, validation, collator, output_dir, stop_after_epochs=None, fp32_candidate_head=False):
+    def __init__(self, validation, collator, output_dir, stop_after_epochs=None,
+                 fp32_candidate_head=False, eval_batch_size=1):
         self.validation, self.collator = validation, collator
         self.output_dir = Path(output_dir)
         self.stop_after_epochs = stop_after_epochs
         self.fp32_candidate_head = fp32_candidate_head
+        self.eval_batch_size = eval_batch_size
         path = self.output_dir / 'epoch_metrics.json'
         self.history = json.loads(path.read_text()) if path.exists() else []
 
@@ -233,7 +238,8 @@ class EpochValidation(TrainerCallback):
                 was_training = model.training
                 report = evaluate(model, self.validation, self.collator,
                                   self.output_dir / f'epoch-{epoch}.json',
-                                  fp32_candidate_head=self.fp32_candidate_head)
+                                  fp32_candidate_head=self.fp32_candidate_head,
+                                  eval_batch_size=self.eval_batch_size)
                 model.train(was_training)
                 self.history.append({'epoch': epoch, 'step': state.global_step, 'summary': report['summary']})
                 (self.output_dir / 'epoch_metrics.json').write_text(json.dumps(self.history, indent=2) + '\n')
@@ -254,13 +260,15 @@ def flatten_eval_summary(summary, prefix="eval"):
 
 class PeriodicEvalAndSwanLabCallback(TrainerCallback):
     """Log training metrics to SwanLab and run periodic eval on the validation set."""
-    def __init__(self, validation, collator, output_dir, eval_steps=0, swanlab_mod=None, fp32_candidate_head=False):
+    def __init__(self, validation, collator, output_dir, eval_steps=0, swanlab_mod=None,
+                 fp32_candidate_head=False, eval_batch_size=1):
         self.validation = validation
         self.collator = collator
         self.output_dir = Path(output_dir)
         self.eval_steps = eval_steps
         self.swanlab = swanlab_mod
         self.fp32_candidate_head = fp32_candidate_head
+        self.eval_batch_size = eval_batch_size
         self.last_eval_step = -1
         self.last_log_time = None
         self.last_log_step = 0
@@ -289,7 +297,8 @@ class PeriodicEvalAndSwanLabCallback(TrainerCallback):
                 was_training = model.training
                 report = evaluate(model, self.validation, self.collator,
                                   self.output_dir / f"step-{state.global_step}.json",
-                                  fp32_candidate_head=self.fp32_candidate_head)
+                                  fp32_candidate_head=self.fp32_candidate_head,
+                                  eval_batch_size=self.eval_batch_size)
                 model.train(was_training)
                 self.last_eval_step = state.global_step
                 if self.swanlab is not None:
@@ -426,7 +435,7 @@ def train(args):
             },
         )
     initial = (evaluate(model, validation, collator, args.output_dir / "before.json",
-                        fp32_candidate_head=args.fp32_candidate_head)
+                        fp32_candidate_head=args.fp32_candidate_head, eval_batch_size=args.eval_batch_size)
                if not args.resume_from_checkpoint else None)
     if swanlab_mod is not None and initial is not None:
         swanlab_mod.log(flatten_eval_summary(initial["summary"]), step=0)
@@ -446,12 +455,14 @@ def train(args):
     if args.eval_each_epoch or args.stop_after_epochs:
         callbacks.append(EpochValidation(validation if args.eval_each_epoch else None, collator,
                                          args.output_dir, args.stop_after_epochs,
-                                         fp32_candidate_head=args.fp32_candidate_head))
+                                         fp32_candidate_head=args.fp32_candidate_head,
+                                         eval_batch_size=args.eval_batch_size))
     periodic_cb = None
     if args.eval_steps > 0 or swanlab_mod is not None:
         periodic_cb = PeriodicEvalAndSwanLabCallback(validation, collator, args.output_dir,
                                                      eval_steps=args.eval_steps, swanlab_mod=swanlab_mod,
-                                                     fp32_candidate_head=args.fp32_candidate_head)
+                                                     fp32_candidate_head=args.fp32_candidate_head,
+                                                     eval_batch_size=args.eval_batch_size)
         callbacks.append(periodic_cb)
     trainer = CandidateTrainer(model=model, args=args_hf, train_dataset=training, data_collator=collator,
                                processing_class=tokenizer, callbacks=callbacks,
@@ -461,7 +472,7 @@ def train(args):
     result = trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     elapsed = time.monotonic() - started
     final = evaluate(model, validation, collator, args.output_dir / "after.json",
-                     fp32_candidate_head=args.fp32_candidate_head)
+                     fp32_candidate_head=args.fp32_candidate_head, eval_batch_size=args.eval_batch_size)
     if swanlab_mod is not None:
         if periodic_cb is None or periodic_cb.last_eval_step != trainer.state.global_step:
             swanlab_mod.log(flatten_eval_summary(final["summary"]), step=trainer.state.global_step)
@@ -528,6 +539,7 @@ def main():
     fit.add_argument('--eval-each-epoch', action='store_true', help='Measure validation at complete epoch boundaries')
     fit.add_argument('--stop-after-epochs', type=int, help='Stop at an epoch boundary while retaining the max-steps LR schedule')
     fit.add_argument('--eval-steps', type=int, default=0, help='Run validation every N optimizer steps')
+    fit.add_argument('--eval-batch-size', type=int, default=1, help='Batch size during evaluation')
     fit.add_argument('--cv-folds', type=int, default=0, help='Enable K-fold source-family inner CV (0 = disabled)')
     fit.add_argument('--cv-fold', type=int, default=0, help='Fold index in [0, cv-folds - 1] when --cv-folds > 0')
     fit.add_argument('--cv-seed', type=int, default=17, help='Deterministic seed for source-family CV partitioning')
