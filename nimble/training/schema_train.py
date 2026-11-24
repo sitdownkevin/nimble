@@ -121,7 +121,8 @@ class CandidateTrainer(Trainer):
         weights = inputs.get("sample_weights")
         if weights is not None:
             w = weights.to(per_row_ce.device)
-            ce_loss = (per_row_ce * w).sum() / w.sum().clamp_min(1e-8)
+            # True sample-weighted mean (does NOT cancel out when an entire micro-batch is aux).
+            ce_loss = (per_row_ce * w).mean()
         else:
             ce_loss = per_row_ce.mean()
         flip_w = getattr(self, "flip_loss_weight", 0.0)
@@ -423,7 +424,8 @@ def train(args):
     if args.cert_multitask:
         val_families = {r["family"] for r in validation}
         aux_records, aux_raw, aux_skipped = encode_cert_aux_records(
-            raw_train_rows, tokenizer, args.max_length, seed=args.seed, aux_weight=args.aux_loss_weight
+            raw_train_rows, tokenizer, args.max_length, seed=args.seed,
+            aux_weight=args.aux_loss_weight, aux_ratio=args.cert_aux_ratio,
         )
         if {r["family"] for r in aux_records} & val_families:
             raise ValueError("Certificate auxiliary records overlap validation source families")
@@ -653,6 +655,7 @@ def main():
     fit.add_argument('--flip-multiclass-only', action='store_true', help='Apply pairwise flip loss only on K>=3 tasks (choice/score)')
     fit.add_argument('--cert-multitask', action='store_true', help='Add in-dataset evidence_certificate auxiliary tasks (focus noul + 3-way evidence necessity)')
     fit.add_argument('--aux-loss-weight', type=float, default=0.5, help='Sample CE weight for certificate auxiliary rows')
+    fit.add_argument('--cert-aux-ratio', type=float, default=1.0, help='Fraction of training pairs used to generate certificate auxiliary rows')
     fit.add_argument('--swanlab-project', help='SwanLab project name for real-time logging')
     fit.add_argument('--swanlab-run-name', help='SwanLab experiment/run name')
     predict = commands.add_parser("score")

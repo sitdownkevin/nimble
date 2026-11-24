@@ -82,14 +82,16 @@ def _make_3way_choice_aux_row(raw_row, state, focus_statement, target_label, suf
     }
 
 
-def build_cert_aux_raw_rows(raw_train_rows, seed=17):
+def build_cert_aux_raw_rows(raw_train_rows, seed=17, aux_ratio=1.0):
     """Build balanced certificate-grounded auxiliary raw rows strictly from `raw_train_rows`.
 
-    Every training pair (base + counterfactual) contributes to exactly one stream:
-      - 50% of pairs -> `cert_focus_noul` minimal pair (base -> True, cf -> False)
-      - 50% of pairs -> `cert_focus_3way_choice` triplet (base -> supported, cf -> refuted,
+    Up to `aux_ratio` of training pairs contribute to one stream:
+      - 50% of selected pairs -> `cert_focus_noul` minimal pair (base -> True, cf -> False)
+      - 50% of selected pairs -> `cert_focus_3way_choice` triplet (base -> supported, cf -> refuted,
         reconstructed remove_left/remove_right -> unknown)
     """
+    if not 0.0 < aux_ratio <= 1.0:
+        raise ValueError(f"aux_ratio must be in (0, 1], got {aux_ratio}")
     by_pair = defaultdict(dict)
     for row in raw_train_rows:
         if "evidence_certificate" not in row:
@@ -100,6 +102,9 @@ def build_cert_aux_raw_rows(raw_train_rows, seed=17):
         (pid for pid, pair in by_pair.items() if "base" in pair and "counterfactual" in pair),
         key=lambda pid: hashlib.sha256(f"{seed}:{pid}".encode()).hexdigest(),
     )
+    if aux_ratio < 1.0:
+        keep_n = max(2, int(round(len(ordered_pairs) * aux_ratio)))
+        ordered_pairs = ordered_pairs[:keep_n]
 
     aux_rows = []
     half = len(ordered_pairs) // 2
@@ -123,9 +128,9 @@ def build_cert_aux_raw_rows(raw_train_rows, seed=17):
     return aux_rows
 
 
-def encode_cert_aux_records(raw_train_rows, tokenizer, max_length, seed=17, aux_weight=0.5):
+def encode_cert_aux_records(raw_train_rows, tokenizer, max_length, seed=17, aux_weight=0.5, aux_ratio=1.0):
     """Encode certificate auxiliary rows into runtime records (skipping any overlength rows)."""
-    aux_raw = build_cert_aux_raw_rows(raw_train_rows, seed=seed)
+    aux_raw = build_cert_aux_raw_rows(raw_train_rows, seed=seed, aux_ratio=aux_ratio)
     encoded_records = []
     kept_raw = []
     skipped_overlength = 0
