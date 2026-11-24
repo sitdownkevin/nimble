@@ -21,10 +21,20 @@ def read_rows(path):
     return rows
 
 
-def encode_scoring(row, tokenizer, max_length, shuffle_seed=None):
+def is_ordered_or_boolean(field):
+    if field["type"] == "boolean":
+        return True
+    choices = field.get("choices", [])
+    return field["type"] == "enum" and choices == [str(i) for i in range(len(choices))]
+
+
+def encode_scoring(row, tokenizer, max_length, shuffle_seed=None,
+                   preserve_ordered_kinds=False, sync_pair_shuffle=False):
     schema = json.loads(json.dumps(row["schema"]))
-    if shuffle_seed is not None:
-        random.Random(f"{shuffle_seed}:{row['id']}").shuffle(schema[row["field"]]["choices"])
+    field = schema[row["field"]]
+    if shuffle_seed is not None and not (preserve_ordered_kinds and is_ordered_or_boolean(field)):
+        key = row["group_id"] if sync_pair_shuffle else row["id"]
+        random.Random(f"{shuffle_seed}:{key}").shuffle(field["choices"])
     prompt = prepare_prompts(tokenizer, row["context"], schema, max_length)
     i = prompt.names.index(row["field"])
     keys = [choice_key(v) for v in prompt.choices[i]]
@@ -163,7 +173,8 @@ def prepare_data(directory, validation_path, tokenizer, max_length, model_id=MOD
 
 
 def prepare_cv_data(directory, validation_path, tokenizer, max_length, num_folds, fold_index,
-                    cv_seed=17, model_id=MODEL_ID, revision=REVISION):
+                    cv_seed=17, model_id=MODEL_ID, revision=REVISION,
+                    preserve_ordered_kinds=False, sync_pair_shuffle=False, return_raw_train=False):
     """Verify canonical dataset integrity, then split training rows into source-family-disjoint CV folds.
 
     The outer holdout (`validation_path`) is verified for separation and then discarded so it
@@ -177,6 +188,8 @@ def prepare_cv_data(directory, validation_path, tokenizer, max_length, num_folds
         directory, validation_path, tokenizer, max_length, model_id, revision
     )
     raw = read_rows(Path(directory) / "train.jsonl")
+    manifest = json.loads((Path(directory) / "manifest.json").read_text())
+    shuffle_seed = manifest.get("tokenization_reference", {}).get("shuffle_seed", 17)
     family_to_fold = assign_source_family_folds(raw, num_folds=num_folds, seed=cv_seed)
 
     inner_train_raw, inner_val_raw = [], []
@@ -186,7 +199,16 @@ def prepare_cv_data(directory, validation_path, tokenizer, max_length, num_folds
             inner_val_raw.append({**raw_row, "split": "validation"})
         else:
             inner_train_raw.append(raw_row)
-            inner_train_data.append(rt_row)
+            if preserve_ordered_kinds or sync_pair_shuffle:
+                enc = encode_scoring(
+                    as_scoring(raw_row, True), tokenizer, max_length,
+                    shuffle_seed=shuffle_seed,
+                    preserve_ordered_kinds=preserve_ordered_kinds,
+                    sync_pair_shuffle=sync_pair_shuffle,
+                )
+                inner_train_data.append(runtime_record(enc, raw_row))
+            else:
+                inner_train_data.append(rt_row)
 
     validate_separation(inner_train_raw, inner_val_raw)
     inner_val_data = [
@@ -201,6 +223,8 @@ def prepare_cv_data(directory, validation_path, tokenizer, max_length, num_folds
         "cv_folds": num_folds,
         "cv_fold": fold_index,
         "cv_seed": cv_seed,
+        "preserve_ordered_kinds": preserve_ordered_kinds,
+        "sync_pair_shuffle": sync_pair_shuffle,
         "outer_holdout_touched": False,
         "training_rows": len(inner_train_data),
         "training_groups": len({r["family"] for r in inner_train_raw}),
@@ -216,4 +240,6 @@ def prepare_cv_data(directory, validation_path, tokenizer, max_length, num_folds
         "training_kinds": dict(Counter(r["kind"] for r in inner_train_data)),
         "validation_kinds": dict(Counter(r["kind"] for r in inner_val_data)),
     }
+    if return_raw_train:
+        return inner_train_data, inner_val_data, audit, inner_train_raw
     return inner_train_data, inner_val_data, audit

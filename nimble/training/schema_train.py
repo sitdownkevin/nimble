@@ -16,7 +16,9 @@ from transformers.modeling_outputs import SequenceClassifierOutput
 
 from nimble.scoring.parallel_schema import MODEL_ID, REVISION, SYSTEM_PROMPT, choice_key, prepare_prompts
 from nimble.training.model_loading import load_base
-from nimble.training.schema_data import prepare_cv_data, prepare_data, resolve_checkpoint
+from nimble.training.schema_data import (
+    as_scoring, encode_scoring, prepare_cv_data, prepare_data, read_rows, resolve_checkpoint, runtime_record,
+)
 
 MAX_CHOICES = 26
 
@@ -44,7 +46,24 @@ class CandidateCollator:
         return batch
 
 
-def candidate_logits(model, inputs):
+def _unwrap_backbone_and_head(model):
+    base = model.get_base_model() if hasattr(model, "get_base_model") else model
+    inner = getattr(base, "model", base)
+    backbone = getattr(inner, "language_model", inner)
+    head = base.get_output_embeddings()
+    if head is None:
+        raise RuntimeError("Model has no output embeddings for candidate projection")
+    return backbone, head.weight
+
+
+def candidate_logits(model, inputs, fp32_candidate_head=False):
+    if fp32_candidate_head:
+        backbone, head_weight = _unwrap_backbone_and_head(model)
+        hidden = backbone(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"],
+                          use_cache=False).last_hidden_state[:, -1, :]
+        cand_rows = head_weight[inputs["candidate_ids"]]
+        selected = (hidden.float().unsqueeze(1) * cand_rows.float()).sum(dim=-1)
+        return selected.masked_fill(~inputs["candidate_mask"], -torch.inf)
     logits = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"],
                    use_cache=False, logits_to_keep=1).logits[:, -1, :].float()
     selected = logits.gather(1, inputs["candidate_ids"])
@@ -52,16 +71,67 @@ def candidate_logits(model, inputs):
 
 
 class CandidateTrainer(Trainer):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, fp32_candidate_head=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.model_accepts_loss_kwargs = False
+        self.fp32_candidate_head = fp32_candidate_head
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
-        logits = candidate_logits(model, inputs)
+        logits = candidate_logits(model, inputs, fp32_candidate_head=getattr(self, "fp32_candidate_head", False))
         loss = torch.nn.functional.cross_entropy(logits, inputs["labels"])
         if not torch.isfinite(loss):
             raise FloatingPointError("Non-finite candidate loss")
         return (loss, SequenceClassifierOutput(loss=loss, logits=logits)) if return_outputs else loss
+
+
+class DynamicChoiceDataset(torch.utils.data.Dataset):
+    """Keeps ordered/boolean rows cached while dynamically reshuffling choice rows per epoch."""
+
+    def __init__(self, records, raw_rows, tokenizer, max_length, base_seed,
+                 preserve_ordered_kinds=True, sync_pair_shuffle=True):
+        self.records = list(records)
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.base_seed = base_seed
+        self.preserve_ordered_kinds = preserve_ordered_kinds
+        self.sync_pair_shuffle = sync_pair_shuffle
+        self.choice_items = [
+            (idx, as_scoring(raw, True), raw)
+            for idx, (rec, raw) in enumerate(zip(self.records, raw_rows))
+            if rec["kind"] == "choice"
+        ]
+        self.current_epoch = -1
+        self.set_epoch(0)
+
+    def set_epoch(self, epoch):
+        if epoch == self.current_epoch:
+            return
+        self.current_epoch = epoch
+        epoch_seed = f"{self.base_seed}:ep{epoch}"
+        for idx, scoring_row, raw_row in self.choice_items:
+            enc = encode_scoring(
+                scoring_row, self.tokenizer, self.max_length,
+                shuffle_seed=epoch_seed,
+                preserve_ordered_kinds=self.preserve_ordered_kinds,
+                sync_pair_shuffle=self.sync_pair_shuffle,
+            )
+            self.records[idx] = runtime_record(enc, raw_row)
+
+    def __len__(self):
+        return len(self.records)
+
+    def __getitem__(self, idx):
+        return self.records[idx]
+
+
+class DynamicShuffleCallback(TrainerCallback):
+    def __init__(self, dataset):
+        self.dataset = dataset
+
+    def on_epoch_begin(self, args, state, control, **kwargs):
+        epoch = int(round(state.epoch)) if state.epoch is not None else 0
+        self.dataset.set_epoch(epoch)
+        return control
 
 
 def decision_result(row, logits):
@@ -121,14 +191,14 @@ def summarize(rows):
     return summary
 
 
-def evaluate(model, data, collator, output):
+def evaluate(model, data, collator, output, fp32_candidate_head=False):
     model.eval()
     rows = []
     # Match Trainer's BF16 autocast in standalone evaluation and after reload.
     with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
         for r in data:
             batch = {k: v.to("cuda") for k, v in collator([r]).items()}
-            result = decision_result(r, candidate_logits(model, batch)[0].cpu())
+            result = decision_result(r, candidate_logits(model, batch, fp32_candidate_head=fp32_candidate_head)[0].cpu())
             rows.append({"id": r["id"], "family": r["family"], "pair_id": r.get("pair_id"),
                          "kind": r["kind"], "target": r["target"], **result})
     report = {"summary": summarize(rows), "rows": rows}
@@ -148,10 +218,11 @@ class SaveSchemaContract(TrainerCallback):
 
 class EpochValidation(TrainerCallback):
     """Measure inner validation after full epochs without consulting outer eval."""
-    def __init__(self, validation, collator, output_dir, stop_after_epochs=None):
+    def __init__(self, validation, collator, output_dir, stop_after_epochs=None, fp32_candidate_head=False):
         self.validation, self.collator = validation, collator
         self.output_dir = Path(output_dir)
         self.stop_after_epochs = stop_after_epochs
+        self.fp32_candidate_head = fp32_candidate_head
         path = self.output_dir / 'epoch_metrics.json'
         self.history = json.loads(path.read_text()) if path.exists() else []
 
@@ -161,7 +232,8 @@ class EpochValidation(TrainerCallback):
             if self.validation is not None and not any(r['epoch'] == epoch for r in self.history):
                 was_training = model.training
                 report = evaluate(model, self.validation, self.collator,
-                                  self.output_dir / f'epoch-{epoch}.json')
+                                  self.output_dir / f'epoch-{epoch}.json',
+                                  fp32_candidate_head=self.fp32_candidate_head)
                 model.train(was_training)
                 self.history.append({'epoch': epoch, 'step': state.global_step, 'summary': report['summary']})
                 (self.output_dir / 'epoch_metrics.json').write_text(json.dumps(self.history, indent=2) + '\n')
@@ -182,12 +254,13 @@ def flatten_eval_summary(summary, prefix="eval"):
 
 class PeriodicEvalAndSwanLabCallback(TrainerCallback):
     """Log training metrics to SwanLab and run periodic eval on the validation set."""
-    def __init__(self, validation, collator, output_dir, eval_steps=0, swanlab_mod=None):
+    def __init__(self, validation, collator, output_dir, eval_steps=0, swanlab_mod=None, fp32_candidate_head=False):
         self.validation = validation
         self.collator = collator
         self.output_dir = Path(output_dir)
         self.eval_steps = eval_steps
         self.swanlab = swanlab_mod
+        self.fp32_candidate_head = fp32_candidate_head
         self.last_eval_step = -1
         self.last_log_time = None
         self.last_log_step = 0
@@ -215,7 +288,8 @@ class PeriodicEvalAndSwanLabCallback(TrainerCallback):
             if state.global_step != self.last_eval_step and model is not None:
                 was_training = model.training
                 report = evaluate(model, self.validation, self.collator,
-                                  self.output_dir / f"step-{state.global_step}.json")
+                                  self.output_dir / f"step-{state.global_step}.json",
+                                  fp32_candidate_head=self.fp32_candidate_head)
                 model.train(was_training)
                 self.last_eval_step = state.global_step
                 if self.swanlab is not None:
@@ -239,26 +313,59 @@ def train(args):
     tokenizer.padding_side = "left"
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
+    raw_train_rows = None
     if args.cv_folds > 0:
-        training, validation, audit = prepare_cv_data(
+        training, validation, audit, raw_train_rows = prepare_cv_data(
             args.data_dir, args.validation, tokenizer, args.max_length,
             num_folds=args.cv_folds, fold_index=args.cv_fold, cv_seed=args.cv_seed,
             model_id=model_id, revision=revision,
+            preserve_ordered_kinds=args.preserve_ordered_kinds,
+            sync_pair_shuffle=args.dynamic_choice_shuffle,
+            return_raw_train=True,
         )
     else:
         training, validation, audit = prepare_data(
             args.data_dir, args.validation, tokenizer, args.max_length, model_id, revision
         )
+        raw_train_rows = read_rows(args.data_dir / "train.jsonl")
+        if args.preserve_ordered_kinds or args.dynamic_choice_shuffle:
+            manifest = json.loads((args.data_dir / "manifest.json").read_text())
+            s_seed = manifest.get("tokenization_reference", {}).get("shuffle_seed", args.seed)
+            training = [
+                runtime_record(
+                    encode_scoring(
+                        as_scoring(r, True), tokenizer, args.max_length,
+                        shuffle_seed=s_seed,
+                        preserve_ordered_kinds=args.preserve_ordered_kinds,
+                        sync_pair_shuffle=args.dynamic_choice_shuffle,
+                    ),
+                    r,
+                )
+                for r in raw_train_rows
+            ]
+    dynamic_ds = None
+    if args.dynamic_choice_shuffle:
+        dynamic_ds = DynamicChoiceDataset(
+            training, raw_train_rows, tokenizer, args.max_length, base_seed=args.seed,
+            preserve_ordered_kinds=args.preserve_ordered_kinds, sync_pair_shuffle=True,
+        )
+        training = dynamic_ds
     prompt_hash = hashlib.sha256((Path(__file__).parents[1] / "scoring/parallel_schema.py").read_bytes()).hexdigest()
     contract = {"task": "schema_candidate_classification_v1", "model": model_id, "revision": revision,
                 "system_prompt": SYSTEM_PROMPT, "prompt_code_sha256": prompt_hash, "max_length": args.max_length,
                 "lora_rank": args.lora_rank, "seed": args.seed, "data_audit": audit,
                 "learning_rate": args.learning_rate, "batch_size": args.batch_size,
                 "gradient_accumulation": args.gradient_accumulation, "warmup_steps": args.warmup_steps,
-                "max_steps": args.max_steps, "lr_scheduler": "linear", "weight_decay": 0.0}
+                "max_steps": args.max_steps, "lr_scheduler": args.lr_scheduler, "weight_decay": args.weight_decay}
     if args.cv_folds > 0:
         contract.update(cv_folds=args.cv_folds, cv_fold=args.cv_fold, cv_seed=args.cv_seed)
-    contract["inference_precision"] = "bf16_autocast"
+    if args.preserve_ordered_kinds:
+        contract["preserve_ordered_kinds"] = True
+    if args.dynamic_choice_shuffle:
+        contract["dynamic_choice_shuffle"] = True
+    if args.fp32_candidate_head:
+        contract["fp32_candidate_head"] = True
+    contract["inference_precision"] = "fp32_candidate_head" if args.fp32_candidate_head else "bf16_autocast"
     if args.eval_each_epoch or args.stop_after_epochs:
         contract.update(eval_each_epoch=args.eval_each_epoch, stop_after_epochs=args.stop_after_epochs)
     if args.resume_from_checkpoint:
@@ -270,6 +377,9 @@ def train(args):
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "data_audit.json").write_text(json.dumps(audit, indent=2) + "\n")
     base = load_base(model_id, revision)
+    if args.drop_vision and hasattr(base, "model") and hasattr(base.model, "visual"):
+        delattr(base.model, "visual")
+        torch.cuda.empty_cache()
     targets = [name for name, layer in base.named_modules() if isinstance(layer, torch.nn.Linear) and ".language_model." in name]
     if not targets:
         raise RuntimeError("No language linear layers matched")
@@ -293,6 +403,8 @@ def train(args):
                 "model": model_id,
                 "revision": revision,
                 "learning_rate": args.learning_rate,
+                "lr_scheduler": args.lr_scheduler,
+                "weight_decay": args.weight_decay,
                 "lora_rank": args.lora_rank,
                 "batch_size": args.batch_size,
                 "gradient_accumulation": args.gradient_accumulation,
@@ -305,17 +417,23 @@ def train(args):
                 "cv_folds": args.cv_folds,
                 "cv_fold": args.cv_fold if args.cv_folds > 0 else None,
                 "cv_seed": args.cv_seed if args.cv_folds > 0 else None,
+                "preserve_ordered_kinds": args.preserve_ordered_kinds,
+                "dynamic_choice_shuffle": args.dynamic_choice_shuffle,
+                "fp32_candidate_head": args.fp32_candidate_head,
+                "drop_vision": args.drop_vision,
                 "seed": args.seed,
                 "gpu": contract["gpu"],
             },
         )
-    initial = evaluate(model, validation, collator, args.output_dir / "before.json") if not args.resume_from_checkpoint else None
+    initial = (evaluate(model, validation, collator, args.output_dir / "before.json",
+                        fp32_candidate_head=args.fp32_candidate_head)
+               if not args.resume_from_checkpoint else None)
     if swanlab_mod is not None and initial is not None:
         swanlab_mod.log(flatten_eval_summary(initial["summary"]), step=0)
     args_hf = TrainingArguments(
         output_dir=str(args.output_dir), max_steps=args.max_steps, learning_rate=args.learning_rate,
         per_device_train_batch_size=args.batch_size, gradient_accumulation_steps=args.gradient_accumulation,
-        warmup_steps=args.warmup_steps, lr_scheduler_type="linear", weight_decay=0.,
+        warmup_steps=args.warmup_steps, lr_scheduler_type=args.lr_scheduler, weight_decay=args.weight_decay,
         bf16=True, gradient_checkpointing=True, gradient_checkpointing_kwargs={"use_reentrant": False},
         eval_strategy="no", save_strategy="steps", save_steps=args.save_steps, save_total_limit=2,
         logging_steps=1, report_to="none", remove_unused_columns=False, label_names=["labels"],
@@ -323,21 +441,27 @@ def train(args):
         optim="adamw_torch", logging_nan_inf_filter=False,
     )
     callbacks = [SaveSchemaContract(contract)]
+    if dynamic_ds is not None:
+        callbacks.append(DynamicShuffleCallback(dynamic_ds))
     if args.eval_each_epoch or args.stop_after_epochs:
         callbacks.append(EpochValidation(validation if args.eval_each_epoch else None, collator,
-                                         args.output_dir, args.stop_after_epochs))
+                                         args.output_dir, args.stop_after_epochs,
+                                         fp32_candidate_head=args.fp32_candidate_head))
     periodic_cb = None
     if args.eval_steps > 0 or swanlab_mod is not None:
         periodic_cb = PeriodicEvalAndSwanLabCallback(validation, collator, args.output_dir,
-                                                     eval_steps=args.eval_steps, swanlab_mod=swanlab_mod)
+                                                     eval_steps=args.eval_steps, swanlab_mod=swanlab_mod,
+                                                     fp32_candidate_head=args.fp32_candidate_head)
         callbacks.append(periodic_cb)
     trainer = CandidateTrainer(model=model, args=args_hf, train_dataset=training, data_collator=collator,
-                               processing_class=tokenizer, callbacks=callbacks)
+                               processing_class=tokenizer, callbacks=callbacks,
+                               fp32_candidate_head=args.fp32_candidate_head)
     torch.cuda.reset_peak_memory_stats()
     started = time.monotonic()
     result = trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     elapsed = time.monotonic() - started
-    final = evaluate(model, validation, collator, args.output_dir / "after.json")
+    final = evaluate(model, validation, collator, args.output_dir / "after.json",
+                     fp32_candidate_head=args.fp32_candidate_head)
     if swanlab_mod is not None:
         if periodic_cb is None or periodic_cb.last_eval_step != trainer.state.global_step:
             swanlab_mod.log(flatten_eval_summary(final["summary"]), step=trainer.state.global_step)
@@ -394,6 +518,8 @@ def main():
     fit.add_argument("--batch-size", type=int, default=1)
     fit.add_argument("--gradient-accumulation", type=int, default=8)
     fit.add_argument("--learning-rate", type=float, default=2e-5)
+    fit.add_argument("--lr-scheduler", default="linear", choices=["linear", "cosine"])
+    fit.add_argument("--weight-decay", type=float, default=0.0)
     fit.add_argument("--max-length", type=int, default=1024)
     fit.add_argument("--lora-rank", type=int, default=16)
     fit.add_argument("--save-steps", type=int, default=10)
@@ -405,6 +531,10 @@ def main():
     fit.add_argument('--cv-folds', type=int, default=0, help='Enable K-fold source-family inner CV (0 = disabled)')
     fit.add_argument('--cv-fold', type=int, default=0, help='Fold index in [0, cv-folds - 1] when --cv-folds > 0')
     fit.add_argument('--cv-seed', type=int, default=17, help='Deterministic seed for source-family CV partitioning')
+    fit.add_argument('--preserve-ordered-kinds', action='store_true', help='Keep score ascending and noul [False, True] during training')
+    fit.add_argument('--dynamic-choice-shuffle', action='store_true', help='Pair-synchronized per-epoch shuffling for choice rows')
+    fit.add_argument('--fp32-candidate-head', action='store_true', help='Project only candidate rows in exact FP32 (matching CudaCandidateScorer)')
+    fit.add_argument('--drop-vision', action='store_true', help='Delete unused vision encoder before LoRA wrapping')
     fit.add_argument('--swanlab-project', help='SwanLab project name for real-time logging')
     fit.add_argument('--swanlab-run-name', help='SwanLab experiment/run name')
     predict = commands.add_parser("score")
