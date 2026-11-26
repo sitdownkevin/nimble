@@ -1,0 +1,94 @@
+{
+  "nimble-0.8b-text-700": {
+    "val_before": {
+      "count": 150,
+      "correct": 15,
+      "accuracy": 0.1,
+      "nll": 5.082361302947088,
+      "brier": 1.0994283165976404
+    },
+    "val_after": {
+      "count": 150,
+      "correct": 108,
+      "accuracy": 0.72,
+      "nll": 1.3663812690163668,
+      "brier": 0.43412568125355105
+    },
+    "test_final": {
+      "count": 150,
+      "correct": 116,
+      "accuracy": 0.7733333333333333,
+      "nll": 1.2336500195983364,
+      "brier": 0.38538000195708666
+    },
+    "peak_gib": 2.103053092956543,
+    "steps": 264
+  },
+  "nimble-0.8b-mm-700": {
+    "val_before": {
+      "count": 150,
+      "correct": 16,
+      "accuracy": 0.10666666666666667,
+      "nll": 4.825026711531681,
+      "brier": 1.085209827624554
+    },
+    "val_after": {
+      "count": 150,
+      "correct": 111,
+      "accuracy": 0.74,
+      "nll": 1.5304615511074922,
+      "brier": 0.4501826880313946
+    },
+    "test_final": {
+      "count": 150,
+      "correct": 114,
+      "accuracy": 0.76,
+      "nll": 1.5418517628651867,
+      "brier": 0.44080719312074723
+    },
+    "peak_gib": 2.1784963607788086,
+    "steps": 264
+  },
+  "nimble-4b-text-700": {
+    "val_before": {
+      "count": 150,
+      "correct": 78,
+      "accuracy": 0.52,
+      "nll": 1.7171442872040015,
+      "brier": 0.6433251316788032
+    },
+    "val_after": {
+      "count": 150,
+      "correct": 124,
+      "accuracy": 0.8266666666666667,
+      "nll": 1.0748263020651425,
+      "brier": 0.3242461564492052
+    },
+    "test_final": {
+      "count": 150,
+      "correct": 125,
+      "accuracy": 0.8333333333333334,
+      "nll": 0.9759349234670289,
+      "brier": 0.2789046014996348
+    },
+    "peak_gib": 9.800421237945557,
+    "steps": 264
+  },
+  "nimble-0.8b-visual-only": {
+    "val_after": {
+      "count": 150,
+      "correct": 93,
+      "accuracy": 0.62,
+      "nll": 1.6222686630591878,
+      "brier": 0.556390078022347
+    },
+    "test_final": {
+      "count": 150,
+      "correct": 95,
+      "accuracy": 0.6333333333333333,
+      "nll": 1.6870334954799773,
+      "brier": 0.5703553832624331
+    },
+    "steps": 264
+  }
+}

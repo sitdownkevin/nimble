@@ -1,0 +1,382 @@
+{
+ "summary": {
+  "16": {
+   "n": 12,
+   "mean_cer": 0.038799603393134936,
+   "median_cer": 0.019148936170212766,
+   "mean_chars": 252.66666666666666,
+   "mean_tokens": 116.0,
+   "tokens_per_char": 0.45910290237467016
+  },
+  "20": {
+   "n": 12,
+   "mean_cer": 0.006343252438985518,
+   "median_cer": 0.008130081300813009,
+   "mean_chars": 252.66666666666666,
+   "mean_tokens": 165.58333333333334,
+   "tokens_per_char": 0.6553430079155673
+  }
+ },
+ "rows": [
+  {
+   "px": 16,
+   "id": "real_6ff3f0c7fe1d",
+   "chars": 358,
+   "image_tokens": 160,
+   "tokens_per_char": 0.44692737430167595,
+   "size": [
+    640,
+    244
+   ],
+   "cer": 0.027932960893854747,
+   "seconds": 9.9,
+   "ref_head": "标题：挚爱母婴正文：我们目前主要为B2C客户提供进口母婴品牌的在线商品交易以及虚",
+   "hyp_head": "标题：挚爱母婴正文：我们目前主要为B2C客户提供进口母婴品牌的在线商品交易以及虚"
+  },
+  {
+   "px": 16,
+   "id": "real_c49291117214",
+   "chars": 364,
+   "image_tokens": 160,
+   "tokens_per_char": 0.43956043956043955,
+   "size": [
+    640,
+    244
+   ],
+   "cer": 0.04945054945054945,
+   "seconds": 9.2,
+   "ref_head": "标题：线上南环桥-农产品批发采购App正文：线上南环桥-让批发更简单、更轻松、更",
+   "hyp_head": "标题：线上南环桥-农产品批发采购App正文：线上南环桥-让批发更简单、更轻松、更"
+  },
+  {
+   "px": 16,
+   "id": "real_a9d58ea73c36",
+   "chars": 123,
+   "image_tokens": 80,
+   "tokens_per_char": 0.6504065040650406,
+   "size": [
+    640,
+    130
+   ],
+   "cer": 0.0,
+   "seconds": 3.0,
+   "ref_head": "标题：这还是coach吗正文：#人生COACH质感超好，没有很大的logo，简单",
+   "hyp_head": "标题：这还是coach吗正文：#人生COACH质感超好，没有很大的logo，简单"
+  },
+  {
+   "px": 16,
+   "id": "real_d70f63035383",
+   "chars": 238,
+   "image_tokens": 120,
+   "tokens_per_char": 0.5042016806722689,
+   "size": [
+    640,
+    187
+   ],
+   "cer": 0.037815126050420166,
+   "seconds": 5.7,
+   "ref_head": "标题：网易将军令正文：全新网易手机将军令，支持动态密码及二维码安全登录、帐号余额",
+   "hyp_head": "标题：网易将军令正文：全新网易手机将军令，支持动态密码及二维码安全登录、帐号余额"
+  },
+  {
+   "px": 16,
+   "id": "real_a75979abbff1",
+   "chars": 307,
+   "image_tokens": 100,
+   "tokens_per_char": 0.3257328990228013,
+   "size": [
+    640,
+    168
+   ],
+   "cer": 0.006514657980456026,
+   "seconds": 4.1,
+   "ref_head": "标题：AnalyticalSFC-AsEasyAsLC正文：Analytical",
+   "hyp_head": "标题：AnalyticalSFC-AsEasyAsLC正文：Analytical"
+  },
+  {
+   "px": 16,
+   "id": "real_43b5587dab59",
+   "chars": 72,
+   "image_tokens": 72,
+   "tokens_per_char": 1.0,
+   "size": [
+    640,
+    73
+   ],
+   "cer": 0.0,
+   "seconds": 2.0,
+   "ref_head": "图中文字：有色墨轮印字连续封口机不锈钢机身精准温控快速封口画面描述：一台不锈钢连",
+   "hyp_head": "图中文字：有色墨轮印字连续封口机不锈钢机身精准温控快速封口画面描述：一台不锈钢连"
+  },
+  {
+   "px": 16,
+   "id": "real_8ec9582053df",
+   "chars": 353,
+   "image_tokens": 140,
+   "tokens_per_char": 0.39660056657223797,
+   "size": [
+    640,
+    225
+   ],
+   "cer": 0.039660056657223795,
+   "seconds": 8.8,
+   "ref_head": "标题：迪卡侬运动-跑步健身瑜伽运动器械正文：欢迎来到迪卡侬运动！迪卡侬运动是一款",
+   "hyp_head": "标题：迪卡侬运动-跑步健身瑜伽运动器械正文：欢迎来到迪卡侬运动！迪卡侬运动是一款"
+  },
+  {
+   "px": 16,
+   "id": "real_4f98bfd37975",
+   "chars": 174,
+   "image_tokens": 100,
+   "tokens_per_char": 0.5747126436781609,
+   "size": [
+    640,
+    149
+   ],
+   "cer": 0.005747126436781609,
+   "seconds": 4.2,
+   "ref_head": "标题：靠！！我直接卧槽牛逼！！！！正文：脚后跟皲裂的求你们去买！！我的评价是光子",
+   "hyp_head": "标题：靠！！我直接卧槽牛逼！！！！正文：脚跟跟皲裂的求你们去买！！我的评价是光子"
+  },
+  {
+   "px": 16,
+   "id": "real_37ed7d04c19e",
+   "chars": 200,
+   "image_tokens": 100,
+   "tokens_per_char": 0.5,
+   "size": [
+    640,
+    168
+   ],
+   "cer": 0.005,
+   "seconds": 4.6,
+   "ref_head": "标题：wala-WHYYES正文：20123419walaWHYYESACTUA",
+   "hyp_head": "标题：wala-WHYYES正文：20123419walaWHYYESACTUA"
+  },
+  {
+   "px": 16,
+   "id": "real_edc8c41f4ae4",
+   "chars": 264,
+   "image_tokens": 100,
+   "tokens_per_char": 0.3787878787878788,
+   "size": [
+    640,
+    149
+   ],
+   "cer": 0.26515151515151514,
+   "seconds": 11.5,
+   "ref_head": "标题：CODING-ACADEMY正文：CODINGACADEMY2022TOC",
+   "hyp_head": "标题：CODING-ACADEMY正文：CODINGACADEMY2022TOC"
+  },
+  {
+   "px": 16,
+   "id": "real_06da42c27d71",
+   "chars": 470,
+   "image_tokens": 180,
+   "tokens_per_char": 0.3829787234042553,
+   "size": [
+    640,
+    282
+   ],
+   "cer": 0.019148936170212766,
+   "seconds": 10.3,
+   "ref_head": "标题：银河期货专业版—期货开户交易理财软件正文：【产品简介】银河期货专业版APP",
+   "hyp_head": "标题：银河期货专业版一期开户交易理财软件正文：【产品简介】银河期货专业版APP是"
+  },
+  {
+   "px": 16,
+   "id": "real_ca9d6670fa67",
+   "chars": 109,
+   "image_tokens": 80,
+   "tokens_per_char": 0.7339449541284404,
+   "size": [
+    640,
+    130
+   ],
+   "cer": 0.009174311926605505,
+   "seconds": 2.8,
+   "ref_head": "标题：谢谢姐妹的每年一克金正文：和好闺蜜约定，每年生日的时候送给对方一克黄金#黄",
+   "hyp_head": "标题：谢谢姐妹的每年一克金正文：和好闺蜜约定，每年生日的时候送给对方一克黄金#黄"
+  },
+  {
+   "px": 20,
+   "id": "real_6ff3f0c7fe1d",
+   "chars": 358,
+   "image_tokens": 240,
+   "tokens_per_char": 0.6703910614525139,
+   "size": [
+    640,
+    380
+   ],
+   "cer": 0.008379888268156424,
+   "seconds": 8.7,
+   "ref_head": "标题：挚爱母婴正文：我们目前主要为B2C客户提供进口母婴品牌的在线商品交易以及虚",
+   "hyp_head": "标题：挚爱母婴正文：我们目前主要为B2C客户提供进口母婴品牌的在线商品交易以及虚"
+  },
+  {
+   "px": 20,
+   "id": "real_c49291117214",
+   "chars": 364,
+   "image_tokens": 220,
+   "tokens_per_char": 0.6043956043956044,
+   "size": [
+    640,
+    356
+   ],
+   "cer": 0.008241758241758242,
+   "seconds": 9.1,
+   "ref_head": "标题：线上南环桥-农产品批发采购App正文：线上南环桥-让批发更简单、更轻松、更",
+   "hyp_head": "标题：线上南环桥-农产品批发采购App正文：线上南环桥-让批发更简单、更轻松、更"
+  },
+  {
+   "px": 20,
+   "id": "real_a9d58ea73c36",
+   "chars": 123,
+   "image_tokens": 120,
+   "tokens_per_char": 0.975609756097561,
+   "size": [
+    640,
+    188
+   ],
+   "cer": 0.008130081300813009,
+   "seconds": 2.9,
+   "ref_head": "标题：这还是coach吗正文：#人生COACH质感超好，没有很大的logo，简单",
+   "hyp_head": "标题：这还是coach吗正文：#人生COACH质感超好，没有很大的logo，简单"
+  },
+  {
+   "px": 20,
+   "id": "real_d70f63035383",
+   "chars": 238,
+   "image_tokens": 160,
+   "tokens_per_char": 0.6722689075630253,
+   "size": [
+    640,
+    260
+   ],
+   "cer": 0.012605042016806723,
+   "seconds": 5.7,
+   "ref_head": "标题：网易将军令正文：全新网易手机将军令，支持动态密码及二维码安全登录、帐号余额",
+   "hyp_head": "标题：网易将军令正文：全新网易手机将军令，支持动态密码及二维码安全登录、帐号余额"
+  },
+  {
+   "px": 20,
+   "id": "real_a75979abbff1",
+   "chars": 307,
+   "image_tokens": 160,
+   "tokens_per_char": 0.5211726384364821,
+   "size": [
+    640,
+    260
+   ],
+   "cer": 0.019543973941368076,
+   "seconds": 4.2,
+   "ref_head": "标题：AnalyticalSFC-AsEasyAsLC正文：Analytical",
+   "hyp_head": "标题:AnalyticalSFC-AsEasyAsLC正文:Analytical"
+  },
+  {
+   "px": 20,
+   "id": "real_43b5587dab59",
+   "chars": 72,
+   "image_tokens": 80,
+   "tokens_per_char": 1.1111111111111112,
+   "size": [
+    640,
+    116
+   ],
+   "cer": 0.0,
+   "seconds": 1.9,
+   "ref_head": "图中文字：有色墨轮印字连续封口机不锈钢机身精准温控快速封口画面描述：一台不锈钢连",
+   "hyp_head": "图中文字：有色墨轮印字连续封口机不锈钢机身精准温控快速封口画面描述：一台不锈钢连"
+  },
+  {
+   "px": 20,
+   "id": "real_8ec9582053df",
+   "chars": 353,
+   "image_tokens": 220,
+   "tokens_per_char": 0.623229461756374,
+   "size": [
+    640,
+    356
+   ],
+   "cer": 0.0028328611898017,
+   "seconds": 8.6,
+   "ref_head": "标题：迪卡侬运动-跑步健身瑜伽运动器械正文：欢迎来到迪卡侬运动！迪卡侬运动是一款",
+   "hyp_head": "标题：迪卡侬运动-跑步健身瑜伽运动器械正文：欢迎来到迪卡侬运动！迪卡侬运动是一款"
+  },
+  {
+   "px": 20,
+   "id": "real_4f98bfd37975",
+   "chars": 174,
+   "image_tokens": 140,
+   "tokens_per_char": 0.8045977011494253,
+   "size": [
+    640,
+    212
+   ],
+   "cer": 0.005747126436781609,
+   "seconds": 4.0,
+   "ref_head": "标题：靠！！我直接卧槽牛逼！！！！正文：脚后跟皲裂的求你们去买！！我的评价是光子",
+   "hyp_head": "标题：靠！！我直接卧槽牛逼！！！！正文：脚跟跟皲裂的求你们去买！！我的评价是光子"
+  },
+  {
+   "px": 20,
+   "id": "real_37ed7d04c19e",
+   "chars": 200,
+   "image_tokens": 140,
+   "tokens_per_char": 0.7,
+   "size": [
+    640,
+    212
+   ],
+   "cer": 0.0,
+   "seconds": 4.5,
+   "ref_head": "标题：wala-WHYYES正文：20123419walaWHYYESACTUA",
+   "hyp_head": "标题：wala-WHYYES正文：20123419walaWHYYESACTUA"
+  },
+  {
+   "px": 20,
+   "id": "real_edc8c41f4ae4",
+   "chars": 264,
+   "image_tokens": 140,
+   "tokens_per_char": 0.5303030303030303,
+   "size": [
+    640,
+    212
+   ],
+   "cer": 0.0,
+   "seconds": 5.3,
+   "ref_head": "标题：CODING-ACADEMY正文：CODINGACADEMY2022TOC",
+   "hyp_head": "标题：CODING-ACADEMY正文：CODINGACADEMY2022TOC"
+  },
+  {
+   "px": 20,
+   "id": "real_06da42c27d71",
+   "chars": 470,
+   "image_tokens": 247,
+   "tokens_per_char": 0.5255319148936171,
+   "size": [
+    640,
+    428
+   ],
+   "cer": 0.010638297872340425,
+   "seconds": 10.4,
+   "ref_head": "标题：银河期货专业版—期货开户交易理财软件正文：【产品简介】银河期货专业版APP",
+   "hyp_head": "标题：银河期货专业版一期开户交易理财软件正文：【产品简介】银河期货专业版APP是"
+  },
+  {
+   "px": 20,
+   "id": "real_ca9d6670fa67",
+   "chars": 109,
+   "image_tokens": 120,
+   "tokens_per_char": 1.1009174311926606,
+   "size": [
+    640,
+    188
+   ],
+   "cer": 0.0,
+   "seconds": 2.8,
+   "ref_head": "标题：谢谢姐妹的每年一克金正文：和好闺蜜约定，每年生日的时候送给对方一克黄金#黄",
+   "hyp_head": "标题：谢谢姐妹的每年一克金正文：和好闺蜜约定，每年生日的时候送给对方一克黄金#黄"
+  }
+ ]
+}
