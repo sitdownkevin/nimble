@@ -3,24 +3,14 @@ import {
   ThemeProvider,
   createTheme,
   CssBaseline,
-  AppBar,
-  Toolbar,
-  Typography,
   Box,
-  Paper,
-  Card,
-  CardContent,
+  Typography,
   Button,
   IconButton,
   Select,
   MenuItem,
   ListSubheader,
-  FormControl,
-  InputLabel,
   Switch,
-  FormControlLabel,
-  Chip,
-  Stack,
   Tabs,
   Tab,
   Table,
@@ -30,109 +20,242 @@ import {
   TableHead,
   TableRow,
   LinearProgress,
-  Alert,
-  AlertTitle,
   Tooltip,
   Dialog,
   DialogContent,
-  DialogTitle,
   Snackbar,
-  ToggleButton,
-  ToggleButtonGroup,
   Divider,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  Avatar,
-  alpha,
+  Collapse,
+  styled,
 } from "@mui/material";
 import {
-  AutoAwesomeRounded,
-  BoltRounded,
   PlayArrowRounded,
-  ShuffleRounded,
-  DarkModeRounded,
-  LightModeRounded,
-  UploadFileRounded,
+  CompareArrowsRounded,
+  RefreshRounded,
+  DarkModeOutlined,
+  LightModeOutlined,
+  TuneRounded,
+  FileUploadOutlined,
   DeleteOutlineRounded,
   ContentCopyRounded,
-  ExpandMoreRounded,
-  ZoomInRounded,
-  ImageRounded,
-  VisibilityOffRounded,
-  ContentCutRounded,
-  RestoreRounded,
-  CheckCircleRounded,
-  CancelRounded,
-  AddCircleOutlineRounded,
-  CodeRounded,
-  DataObjectRounded,
-  PsychologyRounded,
-  SpeedRounded,
-  TokenRounded,
-  StarRounded,
+  KeyboardArrowDownRounded,
+  KeyboardArrowRightRounded,
+  OpenInFullRounded,
+  AddRounded,
   CloseRounded,
+  CheckRounded,
 } from "@mui/icons-material";
 
-function buildTheme(mode) {
-  const isDark = mode === "dark";
+/** Clean Google AI Studio model metadata (zero emojis, concise specs) */
+const MODEL_META = {
+  "nimble-4b-mm-sota": {
+    name: "Nimble 4B · Multimodal SOTA",
+    shortName: "Nimble 4B · Merger-LoRA",
+    spec: "sandwich_v3 · Merger-LoRA · FP32",
+    metric: "86.7% Test (TTA5) · 87.3% Val",
+    group: "Nimble 4B",
+  },
+  "nimble-4b-mm-lora-all": {
+    name: "Nimble 4B · Full Vision LoRA",
+    shortName: "Nimble 4B · Full Vision",
+    spec: "sandwich_v3 · LoRA-All · FP32",
+    metric: "84.0% Single-view · 0.043 ECE",
+    group: "Nimble 4B",
+  },
+  "nimble-4b-mm-frozen": {
+    name: "Nimble 4B · Frozen Vision",
+    shortName: "Nimble 4B · Frozen ViT",
+    spec: "sandwich_v3 · Frozen ViT · FP32",
+    metric: "86.0% Test · 0.408 NLL",
+    group: "Nimble 4B",
+  },
+  "nimble-4b-text-sota": {
+    name: "Nimble 4B · Text-only",
+    shortName: "Nimble 4B · Text-only",
+    spec: "sandwich_v3 · Ignores image",
+    metric: "83.3% Test (text control)",
+    group: "Nimble 4B",
+  },
+  "nimble-0.8b-mm-sota": {
+    name: "Nimble 0.8B · Multimodal SOTA",
+    shortName: "Nimble 0.8B · MM SOTA",
+    spec: "sandwich_v3 · Frozen ViT · FP32",
+    metric: "79.3% Single · 80.0% TTA5",
+    group: "Nimble 0.8B",
+  },
+  "nimble-0.8b-rawad-mm": {
+    name: "Nimble 0.8B · Raw-Ad Pixel",
+    shortName: "Nimble 0.8B · Raw-Ad",
+    spec: "Trained without OCR/Caption",
+    metric: "76.0% Raw-Ad (+13.3pp vs text)",
+    group: "Nimble 0.8B",
+  },
+  "nimble-0.8b-legacy-v1": {
+    name: "Nimble 0.8B · Legacy v1",
+    shortName: "Nimble 0.8B · Legacy v1",
+    spec: "v1 double-JSON · BF16 head",
+    metric: "76.0% Test · 1.542 NLL",
+    group: "Legacy Baseline",
+  },
+  "nimble-0.8b-text-legacy-v1": {
+    name: "Nimble 0.8B · Legacy Text v1",
+    shortName: "Nimble 0.8B · Text v1",
+    spec: "v1 JSON · Ignores image",
+    metric: "77.3% Test · 1.234 NLL",
+    group: "Legacy Baseline",
+  },
+  "kev-4b-mm": {
+    name: "Kev 4B · Multimodal",
+    shortName: "Kev 4B · PointerHead",
+    spec: "FIM tokens · PointerHead",
+    metric: "85.3% Test · 0.538 NLL",
+    group: "Kev Architecture",
+  },
+  "kev-0.8b-mm": {
+    name: "Kev 0.8B · Multimodal",
+    shortName: "Kev 0.8B · PointerHead",
+    spec: "FIM tokens · PointerHead",
+    metric: "74.7% Test",
+    group: "Kev Architecture",
+  },
+};
+
+function stripEmoji(str = "") {
+  return str.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "").trim();
+}
+
+function getModelDisplay(item) {
+  if (MODEL_META[item.id]) return { id: item.id, ...MODEL_META[item.id] };
+  return {
+    id: item.id,
+    name: stripEmoji(item.title || item.id),
+    spec: item.group || "Model",
+    metric: stripEmoji(item.note || ""),
+    group: item.group || "Other",
+  };
+}
+
+/** Authentic Material Design 3 enclosed pill switch */
+const M3Switch = styled((props) => (
+  <Switch focusVisibleClassName=".Mui-focusVisible" disableRipple {...props} />
+))(({ theme }) => ({
+  width: 38,
+  height: 22,
+  padding: 0,
+  "& .MuiSwitch-switchBase": {
+    padding: 0,
+    margin: 3,
+    transitionDuration: "180ms",
+    "&.Mui-checked": {
+      transform: "translateX(16px)",
+      color: theme.palette.mode === "dark" ? "#062e6f" : "#ffffff",
+      "& + .MuiSwitch-track": {
+        backgroundColor: theme.palette.mode === "dark" ? "#a8c7fa" : "#0b57d0",
+        opacity: 1,
+        border: 0,
+      },
+    },
+  },
+  "& .MuiSwitch-thumb": {
+    boxSizing: "border-box",
+    width: 16,
+    height: 16,
+    boxShadow: "none",
+  },
+  "& .MuiSwitch-track": {
+    borderRadius: 999,
+    backgroundColor: theme.palette.mode === "dark" ? "#444746" : "#dfe3e8",
+    border: `1px solid ${theme.palette.mode === "dark" ? "#8e918f" : "#c4c7c5"}`,
+    opacity: 1,
+    transition: theme.transitions.create(["background-color", "border-color"], { duration: 180 }),
+  },
+}));
+
+function buildGoogleTheme(mode) {
+  const dark = mode === "dark";
   return createTheme({
     palette: {
       mode,
       primary: {
-        main: isDark ? "#60a5fa" : "#2563eb",
-        light: isDark ? "#93c5fd" : "#60a5fa",
-        dark: isDark ? "#3b82f6" : "#1d4ed8",
-      },
-      secondary: {
-        main: isDark ? "#a78bfa" : "#7c3aed",
-      },
-      success: {
-        main: isDark ? "#34d399" : "#16a34a",
-      },
-      warning: {
-        main: isDark ? "#fbbf24" : "#d97706",
-      },
-      error: {
-        main: isDark ? "#f87171" : "#dc2626",
+        main: dark ? "#a8c7fa" : "#0b57d0",
+        dark: dark ? "#8ab4f8" : "#0842a0",
+        contrastText: dark ? "#062e6f" : "#ffffff",
       },
       background: {
-        default: isDark ? "#0b0f19" : "#f4f6fa",
-        paper: isDark ? "#111827" : "#ffffff",
+        default: dark ? "#131314" : "#f8fafd",
+        paper: dark ? "#1e1f20" : "#ffffff",
       },
-      divider: isDark ? "rgba(255,255,255,0.09)" : "rgba(15,23,42,0.09)",
+      text: {
+        primary: dark ? "#e3e3e3" : "#1f1f1f",
+        secondary: dark ? "#9aa0a6" : "#5f6368",
+      },
+      divider: dark ? "#333537" : "#e3e8ef",
     },
-    shape: { borderRadius: 10 },
+    shape: { borderRadius: 12 },
     typography: {
       fontFamily:
-        'Inter, -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif',
-      button: { textTransform: "none", fontWeight: 600 },
+        '"Google Sans", "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif',
+      button: { textTransform: "none", fontWeight: 500, letterSpacing: 0 },
     },
     components: {
       MuiPaper: {
-        styleOverrides: {
-          root: { backgroundImage: "none" },
-        },
+        styleOverrides: { root: { backgroundImage: "none" } },
       },
       MuiButton: {
         styleOverrides: {
-          root: { borderRadius: 8, boxShadow: "none", "&:hover": { boxShadow: "none" } },
+          root: {
+            borderRadius: 999,
+            boxShadow: "none",
+            fontSize: "0.8125rem",
+            paddingLeft: 16,
+            paddingRight: 16,
+            "&:hover": { boxShadow: "none" },
+          },
         },
       },
-      MuiChip: {
+      MuiTab: {
         styleOverrides: {
-          root: { fontWeight: 500 },
+          root: {
+            textTransform: "none",
+            minHeight: 44,
+            minWidth: "auto",
+            padding: "0 14px",
+            fontSize: "0.825rem",
+            fontWeight: 500,
+            color: dark ? "#9aa0a6" : "#5f6368",
+            "&.Mui-selected": {
+              color: dark ? "#a8c7fa" : "#0b57d0",
+              fontWeight: 600,
+            },
+          },
+        },
+      },
+      MuiTabs: {
+        styleOverrides: {
+          indicator: {
+            height: 3,
+            borderTopLeftRadius: 3,
+            borderTopRightRadius: 3,
+            backgroundColor: dark ? "#a8c7fa" : "#0b57d0",
+          },
         },
       },
       MuiTableCell: {
         styleOverrides: {
+          root: {
+            borderColor: dark ? "#2a2b2d" : "#eef1f5",
+            padding: "10px 14px",
+          },
           head: {
-            fontWeight: 700,
-            fontSize: "0.76rem",
-            letterSpacing: "0.02em",
+            fontSize: "0.75rem",
+            fontWeight: 500,
+            color: dark ? "#9aa0a6" : "#5f6368",
+            backgroundColor: "transparent",
             whiteSpace: "nowrap",
           },
-          body: { fontSize: "0.8125rem" },
+          body: {
+            fontSize: "0.8125rem",
+          },
         },
       },
     },
@@ -147,17 +270,70 @@ function withImagePos(state, uri, pos) {
   return Object.fromEntries(entries);
 }
 
-function CodeEditorCard({ title, icon, value, onChange, error, actions, minHeight = 165 }) {
+/** Segmented pill control (Google M3 style) */
+function SegmentedControl({ options, value, onChange, fullWidth = false }) {
+  return (
+    <Box
+      sx={{
+        display: fullWidth ? "grid" : "inline-flex",
+        gridTemplateColumns: fullWidth ? `repeat(${options.length}, 1fr)` : undefined,
+        p: "3px",
+        borderRadius: 999,
+        bgcolor: (t) => (t.palette.mode === "dark" ? "#282a2c" : "#eef2f7"),
+        gap: "2px",
+      }}
+    >
+      {options.map((opt) => {
+        const active = value === opt.value;
+        return (
+          <Box
+            key={opt.value}
+            component="button"
+            type="button"
+            onClick={() => onChange(opt.value)}
+            sx={{
+              border: 0,
+              cursor: "pointer",
+              px: 1.4,
+              py: 0.55,
+              borderRadius: 999,
+              fontFamily: "inherit",
+              fontSize: "0.75rem",
+              fontWeight: active ? 600 : 500,
+              whiteSpace: "nowrap",
+              transition: "all 140ms ease",
+              color: (t) =>
+                active
+                  ? t.palette.text.primary
+                  : t.palette.text.secondary,
+              bgcolor: (t) =>
+                active
+                  ? t.palette.mode === "dark"
+                    ? "#3c4043"
+                    : "#ffffff"
+                  : "transparent",
+              boxShadow: active ? "0 1px 2px rgba(0,0,0,0.08)" : "none",
+              "&:hover": {
+                color: "text.primary",
+              },
+            }}
+          >
+            {opt.label}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
+/** Quiet, minimal code editor section */
+function MinimalJsonEditor({ label, metaText, value, onChange, error, rightActions, sx }) {
   const gutterRef = useRef(null);
   const lineCount = useMemo(() => (value.match(/\n/g) || []).length + 1, [value]);
   const lineNumbers = useMemo(
     () => Array.from({ length: lineCount }, (_, i) => i + 1).join("\n"),
     [lineCount]
   );
-
-  const handleScroll = (e) => {
-    if (gutterRef.current) gutterRef.current.scrollTop = e.target.scrollTop;
-  };
 
   const handleKeyDown = (e) => {
     if (e.key === "Tab") {
@@ -174,32 +350,45 @@ function CodeEditorCard({ title, icon, value, onChange, error, actions, minHeigh
   };
 
   return (
-    <Paper variant="outlined" sx={{ display: "flex", flexDirection: "column", overflow: "hidden", flex: 1, minHeight }}>
+    <Box sx={{ display: "flex", flexDirection: "column", minHeight: 0, ...sx }}>
       <Box
         sx={{
-          px: 1.5,
-          py: 0.75,
+          height: 34,
+          px: 2,
           display: "flex",
           alignItems: "center",
           gap: 1,
+          borderTop: 1,
           borderBottom: 1,
           borderColor: "divider",
-          bgcolor: (t) => alpha(t.palette.primary.main, t.palette.mode === "dark" ? 0.06 : 0.03),
+          bgcolor: (t) => (t.palette.mode === "dark" ? "#191a1c" : "#fafbfd"),
+          flexShrink: 0,
         }}
       >
-        {icon}
-        <Typography variant="subtitle2" sx={{ fontWeight: 700, fontSize: "0.8rem" }}>
-          {title}
+        <Typography sx={{ fontSize: "0.76rem", fontWeight: 600, color: "text.primary" }}>
+          {label}
         </Typography>
-        {error ? (
-          <Chip size="small" color="error" variant="outlined" label="JSON 语法错误" sx={{ height: 20, fontSize: "0.7rem" }} />
-        ) : (
-          <Chip size="small" color="success" variant="outlined" label="JSON 合法" sx={{ height: 20, fontSize: "0.7rem" }} />
+        {metaText && !error && (
+          <Typography sx={{ fontSize: "0.72rem", color: "text.secondary" }}>
+            {metaText}
+          </Typography>
+        )}
+        {error && (
+          <Typography
+            sx={{
+              fontSize: "0.72rem",
+              fontWeight: 500,
+              color: (t) => (t.palette.mode === "dark" ? "#f28b82" : "#b3261e"),
+            }}
+          >
+            JSON 语法错误
+          </Typography>
         )}
         <Box sx={{ flex: 1 }} />
-        {actions}
+        {rightActions}
       </Box>
-      <Box sx={{ display: "flex", flex: 1, minHeight: 0, position: "relative" }}>
+
+      <Box sx={{ display: "flex", flex: 1, minHeight: 0 }}>
         <Box
           ref={gutterRef}
           component="pre"
@@ -207,17 +396,15 @@ function CodeEditorCard({ title, icon, value, onChange, error, actions, minHeigh
             m: 0,
             py: 1.25,
             px: 1,
-            width: 38,
+            width: 36,
             textAlign: "right",
             userSelect: "none",
             overflow: "hidden",
-            fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
+            fontFamily: '"Google Sans Mono", "SF Mono", "JetBrains Mono", Menlo, monospace',
             fontSize: "12px",
-            lineHeight: "1.55",
-            color: "text.disabled",
-            bgcolor: (t) => (t.palette.mode === "dark" ? "rgba(255,255,255,0.02)" : "rgba(15,23,42,0.025)"),
-            borderRight: 1,
-            borderColor: "divider",
+            lineHeight: "1.6",
+            color: (t) => (t.palette.mode === "dark" ? "#5f6368" : "#9aa0a6"),
+            flexShrink: 0,
           }}
         >
           {lineNumbers}
@@ -226,7 +413,9 @@ function CodeEditorCard({ title, icon, value, onChange, error, actions, minHeigh
           component="textarea"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          onScroll={handleScroll}
+          onScroll={(e) => {
+            if (gutterRef.current) gutterRef.current.scrollTop = e.target.scrollTop;
+          }}
           onKeyDown={handleKeyDown}
           spellCheck={false}
           sx={{
@@ -235,89 +424,131 @@ function CodeEditorCard({ title, icon, value, onChange, error, actions, minHeigh
             border: 0,
             outline: "none",
             resize: "none",
-            p: 1.25,
+            py: 1.25,
+            pr: 2,
+            pl: 0.5,
             m: 0,
             bgcolor: "transparent",
             color: "text.primary",
-            fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
+            fontFamily: '"Google Sans Mono", "SF Mono", "JetBrains Mono", Menlo, monospace',
             fontSize: "12.5px",
-            lineHeight: "1.55",
+            lineHeight: "1.6",
             overflow: "auto",
           }}
         />
       </Box>
-      {error && (
-        <Box sx={{ px: 1.5, py: 0.5, bgcolor: (t) => alpha(t.palette.error.main, 0.1), borderTop: 1, borderColor: "error.main" }}>
-          <Typography variant="caption" color="error.main" sx={{ fontFamily: "monospace" }}>
-            {error}
-          </Typography>
-        </Box>
-      )}
-    </Paper>
+    </Box>
   );
 }
 
-function QuestionDistributionCard({ qid, ans, gold }) {
+/** Probability distribution view for a single question */
+function ProbabilityDistribution({ qid, ans, gold }) {
   if (!ans) return null;
 
   if (ans.type === "choice") {
-    const entries = Object.entries(ans.probabilities || {}).sort((a, b) => b[1] - a[1]);
-    const topEntries = entries.slice(0, 8);
+    const sorted = Object.entries(ans.probabilities || {}).sort((a, b) => b[1] - a[1]);
+    const top = sorted.slice(0, 8);
     return (
-      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5, flexWrap: "wrap", useFlexGap: true }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-            决策项 `{qid}` · Top-8 候选概率分布
+      <Box sx={{ mb: 3 }}>
+        <Box sx={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", mb: 1.25 }}>
+          <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: "text.secondary" }}>
+            候选概率分布 · {qid}
           </Typography>
-          <Chip size="small" color="primary" label={`首选：${ans.choice}`} />
-          {ans.confidence != null && (
-            <Chip size="small" variant="outlined" label={`归一化置信度 ${(ans.confidence * 100).toFixed(1)}%`} />
-          )}
-          <Box sx={{ flex: 1 }} />
-          <Typography variant="caption" color="text.secondary">
-            共 {entries.length} 个候选类目
+          <Typography sx={{ fontSize: "0.74rem", color: "text.secondary" }}>
+            显示前 {top.length} / {sorted.length} 项
+            {ans.confidence != null ? ` · 归一化置信度 ${(ans.confidence * 100).toFixed(1)}%` : ""}
           </Typography>
-        </Stack>
-        <Stack spacing={1}>
-          {topEntries.map(([label, prob], idx) => {
-            const isGold = gold && label === gold;
-            const isPredWrong = gold && label === ans.choice && label !== gold;
-            const barColor = isGold ? "success" : isPredWrong ? "error" : idx === 0 ? "primary" : "inherit";
+        </Box>
+
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.9 }}>
+          {top.map(([label, prob], idx) => {
+            const isGold = Boolean(gold && label === gold);
+            const isWrongTop = Boolean(gold && idx === 0 && label !== gold);
             return (
-              <Box key={label} sx={{ display: "grid", gridTemplateColumns: "minmax(140px, 210px) 1fr 64px", alignItems: "center", gap: 1.5 }}>
-                <Stack direction="row" alignItems="center" spacing={0.5} sx={{ minWidth: 0 }}>
-                  {isGold && <StarRounded fontSize="small" color="success" sx={{ fontSize: 16, flexShrink: 0 }} />}
+              <Box
+                key={label}
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: "20px minmax(150px, 210px) 1fr 56px",
+                  alignItems: "center",
+                  gap: 1.25,
+                  py: 0.35,
+                }}
+              >
+                <Typography
+                  sx={{
+                    fontSize: "0.73rem",
+                    fontFamily: "monospace",
+                    color: "text.secondary",
+                    textAlign: "right",
+                  }}
+                >
+                  {idx + 1}
+                </Typography>
+
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
                   <Typography
-                    variant="body2"
                     noWrap
                     title={label}
                     sx={{
-                      fontWeight: isGold || idx === 0 ? 700 : 400,
-                      color: isGold ? "success.main" : isPredWrong ? "error.main" : "text.primary",
-                      fontSize: "0.8rem",
+                      fontSize: "0.8125rem",
+                      fontWeight: idx === 0 || isGold ? 600 : 400,
+                      color: "text.primary",
                     }}
                   >
                     {label}
                   </Typography>
-                </Stack>
-                <LinearProgress
-                  variant="determinate"
-                  value={Math.min(100, Math.max(0.8, prob * 100))}
-                  color={barColor === "inherit" ? "primary" : barColor}
+                  {isGold && (
+                    <Box
+                      component="span"
+                      sx={{
+                        px: 0.7,
+                        py: "1px",
+                        borderRadius: "4px",
+                        fontSize: "0.68rem",
+                        fontWeight: 600,
+                        flexShrink: 0,
+                        bgcolor: (t) => (t.palette.mode === "dark" ? "rgba(129,201,149,0.16)" : "#e6f4ea"),
+                        color: (t) => (t.palette.mode === "dark" ? "#81c995" : "#146c2e"),
+                      }}
+                    >
+                      参考
+                    </Box>
+                  )}
+                </Box>
+
+                <Box
                   sx={{
-                    height: 9,
-                    borderRadius: 99,
-                    opacity: barColor === "inherit" ? 0.55 : 1,
-                    bgcolor: (t) => (t.palette.mode === "dark" ? "rgba(255,255,255,0.07)" : "rgba(15,23,42,0.06)"),
+                    height: 6,
+                    borderRadius: 999,
+                    overflow: "hidden",
+                    bgcolor: (t) => (t.palette.mode === "dark" ? "#2c2d30" : "#eef2f6"),
                   }}
-                />
+                >
+                  <Box
+                    sx={{
+                      height: "100%",
+                      width: `${Math.min(100, Math.max(0.8, prob * 100))}%`,
+                      borderRadius: 999,
+                      transition: "width 240ms cubic-bezier(0.2, 0, 0, 1)",
+                      bgcolor: (t) => {
+                        if (isGold) return t.palette.mode === "dark" ? "#81c995" : "#1e8e3e";
+                        if (isWrongTop) return t.palette.mode === "dark" ? "#f28b82" : "#d93025";
+                        if (idx === 0) return t.palette.primary.main;
+                        return t.palette.mode === "dark" ? "#5f6368" : "#bdc1c6";
+                      },
+                    }}
+                  />
+                </Box>
+
                 <Typography
-                  variant="body2"
-                   sx={{
+                  sx={{
+                    fontSize: "0.8rem",
                     textAlign: "right",
                     fontVariantNumeric: "tabular-nums",
-                    fontWeight: idx === 0 || isGold ? 700 : 500,
-                    fontSize: "0.8rem",
+                    fontFamily: '"Google Sans Mono", "SF Mono", Menlo, monospace',
+                    fontWeight: idx === 0 || isGold ? 600 : 400,
+                    color: idx === 0 || isGold ? "text.primary" : "text.secondary",
                   }}
                 >
                   {(prob * 100).toFixed(1)}%
@@ -325,8 +556,8 @@ function QuestionDistributionCard({ qid, ans, gold }) {
               </Box>
             );
           })}
-        </Stack>
-      </Paper>
+        </Box>
+      </Box>
     );
   }
 
@@ -334,75 +565,80 @@ function QuestionDistributionCard({ qid, ans, gold }) {
     const pTrue = ans.probabilities?.true ?? ans.noul ?? 0;
     const pFalse = ans.probabilities?.false ?? 1 - pTrue;
     return (
-      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-            布尔判定 `{qid}` (noul)
-          </Typography>
-          <Chip
-            size="small"
-            color={pTrue >= 0.5 ? "warning" : "success"}
-            label={`P(true) = ${(pTrue * 100).toFixed(1)}%`}
-          />
-        </Stack>
-        <Stack spacing={1}>
-          {[
-            ["true (命中)", pTrue, "warning"],
-            ["false (未命中)", pFalse, "success"],
-          ].map(([k, p, col]) => (
-            <Box key={k} sx={{ display: "grid", gridTemplateColumns: "150px 1fr 64px", alignItems: "center", gap: 1.5 }}>
-              <Typography variant="body2" sx={{ fontWeight: 600, fontSize: "0.8rem" }}>{k}</Typography>
-              <LinearProgress variant="determinate" value={Math.max(1, p * 100)} color={col} sx={{ height: 9, borderRadius: 99 }} />
-              <Typography variant="body2" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
-                {(p * 100).toFixed(1)}%
-              </Typography>
-            </Box>
-          ))}
-        </Stack>
-      </Paper>
-    );
-  }
-
-  // score type
-  const probs = Object.entries(ans.probabilities || {});
-  return (
-    <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-          等级评分 `{qid}` (score)
+      <Box sx={{ mb: 3 }}>
+        <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: "text.secondary", mb: 1.25 }}>
+          布尔判定 · {qid}
         </Typography>
-        <Chip size="small" color="secondary" label={`期望得分：${ans.score}`} />
-        {ans.confidence != null && <Chip size="small" variant="outlined" label={`集中度 ${(ans.confidence * 100).toFixed(1)}%`} />}
-      </Stack>
-      <Stack spacing={1}>
-        {probs.map(([k, p]) => (
-          <Box key={k} sx={{ display: "grid", gridTemplateColumns: "200px 1fr 64px", alignItems: "center", gap: 1.5 }}>
-            <Typography variant="body2" noWrap title={ans.legend?.[k] || k} sx={{ fontSize: "0.8rem" }}>
-              [{k}] {ans.legend?.[k] || k}
-            </Typography>
-            <LinearProgress variant="determinate" value={Math.max(1, p * 100)} color="secondary" sx={{ height: 9, borderRadius: 99 }} />
-            <Typography variant="body2" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+        {[
+          ["true", pTrue],
+          ["false", pFalse],
+        ].map(([k, p]) => (
+          <Box
+            key={k}
+            sx={{ display: "grid", gridTemplateColumns: "90px 1fr 56px", alignItems: "center", gap: 1.5, py: 0.4 }}
+          >
+            <Typography sx={{ fontSize: "0.8125rem", fontFamily: "monospace", fontWeight: 500 }}>{k}</Typography>
+            <Box sx={{ height: 6, borderRadius: 999, bgcolor: (t) => (t.palette.mode === "dark" ? "#2c2d30" : "#eef2f6") }}>
+              <Box
+                sx={{
+                  height: "100%",
+                  width: `${Math.max(0.8, p * 100)}%`,
+                  borderRadius: 999,
+                  bgcolor: "primary.main",
+                }}
+              />
+            </Box>
+            <Typography sx={{ fontSize: "0.8rem", textAlign: "right", fontFamily: "monospace" }}>
               {(p * 100).toFixed(1)}%
             </Typography>
           </Box>
         ))}
-      </Stack>
-    </Paper>
+      </Box>
+    );
+  }
+
+  const probs = Object.entries(ans.probabilities || {});
+  return (
+    <Box sx={{ mb: 3 }}>
+      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1.25 }}>
+        <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: "text.secondary" }}>
+          等级评分 · {qid}
+        </Typography>
+        <Typography sx={{ fontSize: "0.76rem", fontWeight: 600 }}>期望分值 {ans.score}</Typography>
+      </Box>
+      {probs.map(([k, p]) => (
+        <Box
+          key={k}
+          sx={{ display: "grid", gridTemplateColumns: "210px 1fr 56px", alignItems: "center", gap: 1.5, py: 0.4 }}
+        >
+          <Typography noWrap sx={{ fontSize: "0.8rem" }}>
+            {ans.legend?.[k] || k}
+          </Typography>
+          <Box sx={{ height: 6, borderRadius: 999, bgcolor: (t) => (t.palette.mode === "dark" ? "#2c2d30" : "#eef2f6") }}>
+            <Box sx={{ height: "100%", width: `${Math.max(0.8, p * 100)}%`, borderRadius: 999, bgcolor: "primary.main" }} />
+          </Box>
+          <Typography sx={{ fontSize: "0.8rem", textAlign: "right", fontFamily: "monospace" }}>
+            {(p * 100).toFixed(1)}%
+          </Typography>
+        </Box>
+      ))}
+    </Box>
   );
 }
 
 export default function App() {
   const [themeMode, setThemeMode] = useState("light");
-  const theme = useMemo(() => buildTheme(themeMode), [themeMode]);
+  const theme = useMemo(() => buildGoogleTheme(themeMode), [themeMode]);
 
   const [catalog, setCatalog] = useState([]);
   const [sampleCounts, setSampleCounts] = useState({ all: 150, disagree: 25, poster_only: 33 });
   const [sampleMode, setSampleMode] = useState("disagree");
   const [selectedModel, setSelectedModel] = useState("nimble-4b-mm-sota");
+  const [settingsOpen, setSettingsOpen] = useState(true);
 
   const [currentSample, setCurrentSample] = useState(null);
   const [savedFullState, setSavedFullState] = useState(null);
-  const [modalityMode, setModalityMode] = useState("full"); // full | raw_ad | pure_image | custom
+  const [modalityMode, setModalityMode] = useState("full");
 
   const [imageUri, setImageUri] = useState(null);
   const [imageName, setImageName] = useState("");
@@ -417,7 +653,7 @@ export default function App() {
   const [calibrated, setCalibrated] = useState(true);
   const [tta5, setTta5] = useState(false);
 
-  const [activeTab, setActiveTab] = useState(0); // 0: single, 1: compare, 2: prompt
+  const [activeTab, setActiveTab] = useState(0);
   const [loadingSingle, setLoadingSingle] = useState(false);
   const [loadingCompare, setLoadingCompare] = useState(false);
   const [loadingPrompt, setLoadingPrompt] = useState(false);
@@ -425,20 +661,27 @@ export default function App() {
   const [singleResult, setSingleResult] = useState(null);
   const [compareResult, setCompareResult] = useState(null);
   const [promptResult, setPromptResult] = useState(null);
+  const [rawJsonOpen, setRawJsonOpen] = useState(false);
+  const [tokenTableOpen, setTokenTableOpen] = useState(false);
   const [showAllTokens, setShowAllTokens] = useState(false);
   const [toast, setToast] = useState("");
 
   const fileInputRef = useRef(null);
 
+  const displayCatalog = useMemo(() => catalog.map(getModelDisplay), [catalog]);
+  const currentModelMeta = useMemo(
+    () => displayCatalog.find((m) => m.id === selectedModel) || MODEL_META[selectedModel] || { name: selectedModel },
+    [displayCatalog, selectedModel]
+  );
+
   const groupedCatalog = useMemo(() => {
     const groups = new Map();
-    for (const m of catalog) {
-      const g = m.group || "Models";
-      if (!groups.has(g)) groups.set(g, []);
-      groups.get(g).push(m);
+    for (const m of displayCatalog) {
+      if (!groups.has(m.group)) groups.set(m.group, []);
+      groups.get(m.group).push(m);
     }
     return Array.from(groups.entries());
-  }, [catalog]);
+  }, [displayCatalog]);
 
   const validateJson = useCallback((txt, setter) => {
     try {
@@ -470,9 +713,37 @@ export default function App() {
     [validateJson]
   );
 
+  const executeSingleDirect = useCallback(async (stObj, qObj, imgData, modelId, cal, useTta5, pos) => {
+    const finalState = imgData ? withImagePos(stObj, imgData, pos) : stObj;
+    const body = JSON.stringify({
+      state: finalState,
+      questions: qObj,
+      model: modelId,
+      calibrated: cal,
+      tta_views: useTta5 ? 5 : 1,
+    });
+    const headers = { "Content-Type": "application/json" };
+    setLoadingSingle(true);
+    try {
+      const [ra, rp] = await Promise.all([
+        fetch("/v1/systemone", { method: "POST", headers, body }),
+        fetch("/api/prompt", { method: "POST", headers, body }),
+      ]);
+      const ja = await ra.json().catch(() => ({ detail: ra.statusText }));
+      const jp = await rp.json().catch(() => ({ detail: rp.statusText }));
+      setSingleResult({ status: ra.status, body: ja });
+      if (rp.ok) setPromptResult(jp);
+    } catch (e) {
+      setToast("推理请求失败: " + String(e));
+    } finally {
+      setLoadingSingle(false);
+    }
+  }, []);
+
   const fetchRandomSample = useCallback(
-    async (modeOverride) => {
+    async (modeOverride, modelOverride) => {
       const m = modeOverride ?? sampleMode;
+      const targetModel = modelOverride ?? selectedModel;
       try {
         const res = await fetch(`/api/sample/random?mode=${encodeURIComponent(m)}`);
         const s = await res.json();
@@ -482,15 +753,15 @@ export default function App() {
         updateQuestionsEditor(s.questions);
         setImageUri(s.image);
         setImageName(`${s.id}.jpg`);
-        setSingleResult(null);
         setCompareResult(null);
-        setPromptResult(null);
         setShowAllTokens(false);
+        // Immediately run ~180ms inference so Output pane always shows live calibrated probabilities
+        await executeSingleDirect(s.state, s.questions, s.image, targetModel, calibrated, tta5, imgPos);
       } catch (e) {
         setToast("样本加载失败: " + String(e));
       }
     },
-    [sampleMode, updateStateEditor, updateQuestionsEditor]
+    [sampleMode, selectedModel, calibrated, tta5, imgPos, updateStateEditor, updateQuestionsEditor, executeSingleDirect]
   );
 
   useEffect(() => {
@@ -498,12 +769,13 @@ export default function App() {
       try {
         const res = await fetch("/api/catalog");
         const cat = await res.json();
+        const firstModel = cat.models?.[0]?.id || "nimble-4b-mm-sota";
         if (cat.models?.length) {
           setCatalog(cat.models);
-          setSelectedModel(cat.models[0].id);
+          setSelectedModel(firstModel);
         }
         if (cat.sample_counts) setSampleCounts(cat.sample_counts);
-        await fetchRandomSample("disagree");
+        await fetchRandomSample("disagree", firstModel);
       } catch (e) {
         setToast("初始化失败: " + String(e));
       }
@@ -516,18 +788,17 @@ export default function App() {
     try {
       stObj = JSON.parse(stateText);
     } catch (e) {
-      setToast("State JSON 格式错误: " + e.message);
+      setToast("State JSON 语法错误: " + e.message);
       return null;
     }
     try {
       qObj = JSON.parse(questionsText);
     } catch (e) {
-      setToast("Questions JSON 格式错误: " + e.message);
+      setToast("Questions JSON 语法错误: " + e.message);
       return null;
     }
-    const finalState = imageUri ? withImagePos(stObj, imageUri, imgPos) : stObj;
     return {
-      state: finalState,
+      state: imageUri ? withImagePos(stObj, imageUri, imgPos) : stObj,
       questions: qObj,
       calibrated,
       tta_views: tta5 ? 5 : 1,
@@ -551,9 +822,9 @@ export default function App() {
         const jp = await rp.json().catch(() => ({ detail: rp.statusText }));
         setSingleResult({ status: ra.status, body: ja });
         if (rp.ok) setPromptResult(jp);
-        if (activeTab === 1 && ! modelOverride) setActiveTab(0);
+        if (activeTab === 1 && !modelOverride) setActiveTab(0);
       } catch (e) {
-        setToast("单模型推理出错: " + String(e));
+        setToast("推理失败: " + String(e));
       } finally {
         setLoadingSingle(false);
       }
@@ -577,9 +848,8 @@ export default function App() {
         });
         const jp = await rp.json();
         if (rp.ok) setPromptResult(jp);
-        else setToast("Prompt 获取失败: " + (jp.detail || rp.statusText));
       } catch (e) {
-        setToast("Prompt 请求出错: " + String(e));
+        setToast("Token 视图加载失败: " + String(e));
       } finally {
         setLoadingPrompt(false);
       }
@@ -598,10 +868,9 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
-      setCompareResult(data);
+      setCompareResult(await res.json());
     } catch (e) {
-      setToast("全方法横评失败: " + String(e));
+      setToast("对比评测失败: " + String(e));
     } finally {
       setLoadingCompare(false);
     }
@@ -618,8 +887,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [runSingleModel]);
 
-  const handleModalitySwitch = (_, nextMode) => {
-    if (!nextMode) return;
+  const handleModalityChange = (nextMode) => {
     let baseState = savedFullState;
     if (!baseState) {
       try {
@@ -650,7 +918,7 @@ export default function App() {
       setCurrentSample(null);
       setImageUri(reader.result);
       setImageName(f.name);
-      setToast(`已加载自定义图片 ${f.name}`);
+      setToast(`已载入图片 ${f.name}`);
     };
     reader.readAsDataURL(f);
     e.target.value = "";
@@ -664,21 +932,21 @@ export default function App() {
         while (q[`risk_check_${i}`]) i++;
         q[`risk_check_${i}`] = {
           type: "noul",
-          instructions: "该广告画面或文案中是否包含夸大绝对化用语、功效承诺或诱导点击风险？",
-          criteria: { true: "包含风险暗示或功效承诺", false: "正常合规客观展示" },
+          instructions: "该广告画面或文案中是否包含夸大绝对化用语或功效承诺风险？",
+          criteria: { true: "包含风险暗示或承诺", false: "客观合规展示" },
         };
       } else {
         let i = 1;
-        while (q[`visual_clarity_${i}`]) i++;
-        q[`visual_clarity_${i}`] = {
+        while (q[`clarity_${i}`]) i++;
+        q[`clarity_${i}`] = {
           type: "score",
-          instructions: "评估该广告素材对于目标行业意图表达的清晰度等级",
-          criteria: ["0分：意图极度模糊或无关", "1分：仅有弱相关线索", "2分：行业主体清晰明确", "3分：品牌、产品与行业高度一目了然"],
+          instructions: "评估广告素材对目标行业意图表达的清晰度等级",
+          criteria: ["0分：意图模糊", "1分：弱相关线索", "2分：主体明确", "3分：行业高度清晰"],
         };
       }
       updateQuestionsEditor(q);
     } catch {
-      setToast("请先修复 Questions JSON 语法后再添加题目");
+      setToast("请先修正 Questions JSON 语法");
     }
   };
 
@@ -693,19 +961,24 @@ export default function App() {
     } catch {}
   };
 
-  const copyCurrentJson = () => {
-    const payload =
-      activeTab === 2
-        ? promptResult
-        : activeTab === 1
-        ? compareResult
-        : singleResult?.body;
-    if (!payload) return;
-    navigator.clipboard?.writeText(JSON.stringify(payload, null, 2));
-    setToast("已复制 JSON 到剪贴板");
-  };
+  const stateFieldCount = useMemo(() => {
+    try {
+      const o = JSON.parse(stateText);
+      return o && typeof o === "object" && !Array.isArray(o) ? `${Object.keys(o).length} 个字段` : "";
+    } catch {
+      return "";
+    }
+  }, [stateText]);
 
-  // Compare KPI metrics
+  const questionCountText = useMemo(() => {
+    try {
+      const o = JSON.parse(questionsText);
+      return o && typeof o === "object" ? `${Object.keys(o).length} 个问题` : "";
+    } catch {
+      return "";
+    }
+  }, [questionsText]);
+
   const compareKpis = useMemo(() => {
     if (!compareResult?.results?.length) return null;
     const gold = currentSample?.gold;
@@ -740,826 +1013,995 @@ export default function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Box sx={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        {/* Top Material AppBar */}
-        <AppBar
-          position="static"
-          color="default"
-          elevation={0}
+      <Box
+        sx={{
+          height: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          bgcolor: "background.default",
+          overflow: "hidden",
+        }}
+      >
+        {/* Google AI Studio Top Bar */}
+        <Box
+          component="header"
           sx={{
-            borderBottom: 1,
-            borderColor: "divider",
-            bgcolor: "background.paper",
+            height: 54,
+            px: 2,
+            display: "flex",
+            alignItems: "center",
+            gap: 1.25,
+            flexShrink: 0,
           }}
         >
-          <Toolbar variant="dense" sx={{ gap: 1.25, py: 0.75, flexWrap: "wrap" }}>
-            <Avatar
+          {/* Minimal Geometric Brand Mark */}
+          <Box
+            sx={{
+              width: 24,
+              height: 24,
+              borderRadius: "7px",
+              bgcolor: "primary.main",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            <Box
               sx={{
-                width: 32,
-                height: 32,
-                bgcolor: "primary.main",
-                color: "#fff",
+                width: 9,
+                height: 9,
+                borderRadius: "2px",
+                bgcolor: (t) => (t.palette.mode === "dark" ? "#062e6f" : "#ffffff"),
+                transform: "rotate(45deg)",
+              }}
+            />
+          </Box>
+
+          <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.75 }}>
+            <Typography sx={{ fontSize: "1rem", fontWeight: 600, letterSpacing: "-0.01em", color: "text.primary" }}>
+              Nimble
+            </Typography>
+            <Typography sx={{ fontSize: "0.95rem", fontWeight: 400, color: "text.secondary" }}>
+              Studio
+            </Typography>
+          </Box>
+
+          {currentSample && (
+            <>
+              <Divider orientation="vertical" flexItem sx={{ my: 1.75, mx: 0.5 }} />
+              <Typography
+                sx={{
+                  fontSize: "0.78rem",
+                  fontFamily: '"Google Sans Mono", "SF Mono", Menlo, monospace',
+                  color: "text.secondary",
+                  display: { xs: "none", md: "block" },
+                }}
+              >
+                {currentSample.id}
+              </Typography>
+            </>
+          )}
+
+          <Box sx={{ flex: 1 }} />
+
+          {/* Sample Pool Pill Selector */}
+          <Select
+            size="small"
+            value={sampleMode}
+            onChange={(e) => {
+              setSampleMode(e.target.value);
+              fetchRandomSample(e.target.value);
+            }}
+            sx={{
+              height: 34,
+              borderRadius: 999,
+              bgcolor: "background.paper",
+              fontSize: "0.8rem",
+              "& .MuiOutlinedInput-notchedOutline": { borderColor: "divider" },
+              "& .MuiSelect-select": { pl: 1.75, pr: "32px !important", py: 0.6 },
+            }}
+          >
+            <MenuItem value="disagree" sx={{ fontSize: "0.8125rem" }}>
+              分歧样本 · {sampleCounts.disagree}（SOTA 修正）
+            </MenuItem>
+            <MenuItem value="poster_only" sx={{ fontSize: "0.8125rem" }}>
+              纯海报样本 · {sampleCounts.poster_only}（无文案）
+            </MenuItem>
+            <MenuItem value="all" sx={{ fontSize: "0.8125rem" }}>
+              全部测试集 · {sampleCounts.all}
+            </MenuItem>
+          </Select>
+
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<RefreshRounded sx={{ fontSize: 17 }} />}
+            onClick={() => fetchRandomSample()}
+            sx={{
+              height: 34,
+              bgcolor: "background.paper",
+              borderColor: "divider",
+              color: "text.primary",
+              "&:hover": { borderColor: "text.secondary", bgcolor: "background.paper" },
+            }}
+          >
+            随机抽样
+          </Button>
+
+          {/* M3 Tonal Button for All-Model Benchmark */}
+          <Button
+            size="small"
+            disabled={isBusy}
+            startIcon={<CompareArrowsRounded sx={{ fontSize: 17 }} />}
+            onClick={runCompareAll}
+            sx={{
+              height: 34,
+              bgcolor: (t) => (t.palette.mode === "dark" ? "#0842a0" : "#d3e3fd"),
+              color: (t) => (t.palette.mode === "dark" ? "#d3e3fd" : "#041e49"),
+              fontWeight: 600,
+              "&:hover": {
+                bgcolor: (t) => (t.palette.mode === "dark" ? "#0b57d0" : "#c2d7fc"),
+              },
+            }}
+          >
+            全模型对比
+          </Button>
+
+          {/* M3 Filled Primary Pill Button */}
+          <Button
+            variant="contained"
+            color="primary"
+            size="small"
+            disabled={isBusy}
+            startIcon={<PlayArrowRounded sx={{ fontSize: 18 }} />}
+            onClick={() => runSingleModel()}
+            sx={{ height: 34, fontWeight: 600 }}
+          >
+            运行 ⌘↵
+          </Button>
+
+          <Divider orientation="vertical" flexItem sx={{ my: 1.5, mx: 0.25 }} />
+
+          <Tooltip title={settingsOpen ? "收起配置栏" : "展开配置栏"}>
+            <IconButton
+              size="small"
+              onClick={() => setSettingsOpen((v) => !v)}
+              sx={{
+                width: 34,
+                height: 34,
+                color: settingsOpen ? "primary.main" : "text.secondary",
+                bgcolor: settingsOpen
+                  ? (t) => (t.palette.mode === "dark" ? "rgba(168,199,250,0.12)" : "#e8f0fe")
+                  : "transparent",
               }}
             >
-              <AutoAwesomeRounded sx={{ fontSize: 19 }} />
-            </Avatar>
-            <Box>
-              <Stack direction="row" alignItems="center" spacing={1}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 800, letterSpacing: "-0.01em", lineHeight: 1.2 }}>
-                  Nimble 多模态 SOTA 交互体验台
-                </Typography>
-                <Chip
-                  size="small"
-                  color="primary"
-                  variant="outlined"
-                  label="sandwich_v3 · FP32 · Vision-LoRA · 零泄漏锁温"
-                  sx={{ height: 22, fontSize: "0.72rem", display: { xs: "none", md: "inline-flex" } }}
-                />
-              </Stack>
-            </Box>
+              <TuneRounded sx={{ fontSize: 19 }} />
+            </IconButton>
+          </Tooltip>
 
-            <Box sx={{ flex: 1 }} />
-
-            <Chip
+          <Tooltip title={themeMode === "light" ? "深色外观" : "浅色外观"}>
+            <IconButton
               size="small"
-              variant="outlined"
-              label={`测试集 ${sampleCounts.all} ｜ 逆转样本 ${sampleCounts.disagree} ｜ 纯海报 ${sampleCounts.poster_only}`}
-              sx={{ display: { xs: "none", lg: "inline-flex" }, fontSize: "0.73rem" }}
-            />
-
-            <FormControl size="small" sx={{ minWidth: 255 }}>
-              <Select
-                value={sampleMode}
-                onChange={(e) => {
-                  setSampleMode(e.target.value);
-                  fetchRandomSample(e.target.value);
-                }}
-                sx={{ fontSize: "0.8125rem", height: 34 }}
-              >
-                <MenuItem value="disagree">🎯 经典分歧样本（旧版答错 · SOTA答对）</MenuItem>
-                <MenuItem value="poster_only">🖼️ 无标题正文纯海报样本 ({sampleCounts.poster_only})</MenuItem>
-                <MenuItem value="all">🎲 全部测试集随机样本 ({sampleCounts.all})</MenuItem>
-              </Select>
-            </FormControl>
-
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<ShuffleRounded />}
-              onClick={() => fetchRandomSample()}
-              sx={{ height: 34 }}
+              onClick={() => setThemeMode((m) => (m === "light" ? "dark" : "light"))}
+              sx={{ width: 34, height: 34, color: "text.secondary" }}
             >
-              换一条样本
-            </Button>
+              {themeMode === "light" ? <DarkModeOutlined sx={{ fontSize: 19 }} /> : <LightModeOutlined sx={{ fontSize: 19 }} />}
+            </IconButton>
+          </Tooltip>
+        </Box>
 
-            <Tooltip title={themeMode === "light" ? "切换深色模式" : "切换浅色模式"}>
-              <IconButton
-                size="small"
-                onClick={() => setThemeMode((m) => (m === "light" ? "dark" : "light"))}
-                sx={{ border: 1, borderColor: "divider", borderRadius: 2 }}
-              >
-                {themeMode === "light" ? <DarkModeRounded fontSize="small" /> : <LightModeRounded fontSize="small" />}
-              </IconButton>
-            </Tooltip>
-          </Toolbar>
-        </AppBar>
-
-        {/* Main Two-Column Workspace */}
+        {/* Studio Main Body: Floating Split Canvas + Right Run Settings Rail */}
         <Box
           sx={{
             flex: 1,
             minHeight: 0,
-            display: "grid",
-            gridTemplateColumns: { xs: "1fr", md: "45% 55%" },
-            overflow: { xs: "auto", md: "hidden" },
+            px: 1.5,
+            pb: 1.5,
+            display: "flex",
+            gap: 1.5,
+            overflow: "hidden",
           }}
         >
-          {/* Left Column: Creative Preview + Modality Ablation + JSON Editors */}
+          {/* Center Floating Rounded Surface */}
           <Box
             sx={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 1.5,
-              p: 1.5,
-              borderRight: { md: 1 },
+              flex: 1,
+              minWidth: 0,
+              bgcolor: "background.paper",
+              borderRadius: "16px",
+              border: 1,
               borderColor: "divider",
-              minHeight: 0,
-              overflow: "auto",
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", md: "43% 57%" },
+              overflow: "hidden",
             }}
           >
-            {/* Ad Creative & Modality Ablation Card */}
-            <Card variant="outlined" sx={{ flexShrink: 0 }}>
-              <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                <Stack direction="row" spacing={1.75} alignItems="flex-start">
-                  {/* Image Thumbnail */}
+            {/* Left Workspace Column: Input */}
+            <Box
+              sx={{
+                display: "flex",
+                flexDirection: "column",
+                minHeight: 0,
+                borderRight: { md: 1 },
+                borderColor: "divider",
+              }}
+            >
+              {/* Input Pane Header */}
+              <Box
+                sx={{
+                  height: 44,
+                  px: 2,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  borderBottom: 1,
+                  borderColor: "divider",
+                  flexShrink: 0,
+                }}
+              >
+                <Typography sx={{ fontSize: "0.825rem", fontWeight: 600 }}>输入上下文</Typography>
+                <SegmentedControl
+                  value={modalityMode}
+                  onChange={handleModalityChange}
+                  options={[
+                    { value: "full", label: "完整输入" },
+                    { value: "raw_ad", label: "去 OCR/描述" },
+                    { value: "pure_image", label: "纯图像" },
+                  ]}
+                />
+              </Box>
+
+              {/* Ad Creative Stage (Uncropped `contain` preview!) */}
+              <Box sx={{ p: 1.75, flexShrink: 0 }}>
+                <Box
+                  sx={{
+                    display: "flex",
+                    gap: 2,
+                    p: 1.25,
+                    borderRadius: "12px",
+                    bgcolor: (t) => (t.palette.mode === "dark" ? "#161719" : "#f8fafd"),
+                    border: 1,
+                    borderColor: "divider",
+                    alignItems: "center",
+                  }}
+                >
                   <Box
                     onClick={() => imageUri && setLightboxOpen(true)}
                     sx={{
-                      width: 108,
-                      height: 108,
-                      borderRadius: 2,
-                      border: 1,
-                      borderColor: "divider",
-                      overflow: "hidden",
-                      flexShrink: 0,
-                      position: "relative",
-                      cursor: imageUri ? "zoom-in" : "default",
+                      width: 176,
+                      height: 120,
+                      borderRadius: "8px",
+                      bgcolor: (t) => (t.palette.mode === "dark" ? "#0e0f10" : "#eef2f6"),
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      bgcolor: (t) => (t.palette.mode === "dark" ? "rgba(255,255,255,0.03)" : "#f8fafc"),
-                      "&:hover .zoom-ov": { opacity: 1 },
+                      overflow: "hidden",
+                      position: "relative",
+                      cursor: imageUri ? "zoom-in" : "default",
+                      flexShrink: 0,
+                      "&:hover .img-expand": { opacity: 1 },
                     }}
                   >
                     {imageUri ? (
                       <>
-                        <Box component="img" src={imageUri} alt="广告原图" sx={{ width: "100%", height: "100%", objectFit: "cover" }} />
                         <Box
-                          className="zoom-ov"
+                          component="img"
+                          src={imageUri}
+                          alt="广告素材"
+                          sx={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
+                        />
+                        <Box
+                          className="img-expand"
                           sx={{
                             position: "absolute",
-                            inset: 0,
-                            bgcolor: "rgba(0,0,0,0.42)",
+                            right: 6,
+                            bottom: 6,
+                            width: 24,
+                            height: 24,
+                            borderRadius: "6px",
+                            bgcolor: "rgba(0,0,0,0.58)",
+                            color: "#fff",
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
                             opacity: 0,
-                            transition: "opacity 0.18s",
-                            color: "#fff",
+                            transition: "opacity 150ms",
                           }}
                         >
-                          <ZoomInRounded />
+                          <OpenInFullRounded sx={{ fontSize: 13 }} />
                         </Box>
                       </>
                     ) : (
-                      <Stack alignItems="center" spacing={0.5} sx={{ color: "text.disabled", p: 1 }}>
-                        <ImageRounded />
-                        <Typography variant="caption" align="center" sx={{ fontSize: "0.68rem" }}>
-                          无图片输入
-                        </Typography>
-                      </Stack>
+                      <Typography sx={{ fontSize: "0.75rem", color: "text.secondary" }}>未附带图像</Typography>
                     )}
                   </Box>
 
-                  {/* Sample Metadata & Controls */}
                   <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Stack direction="row" spacing={0.75} alignItems="center" sx={{ flexWrap: "wrap", useFlexGap: true, mb: 1 }}>
-                      {currentSample ? (
-                        <>
-                          <Chip
-                            size="small"
-                            color="success"
-                            icon={<CheckCircleRounded />}
-                            label={`真实标签：${currentSample.gold}`}
-                            sx={{ fontWeight: 700 }}
-                          />
-                          <Chip size="small" variant="outlined" label={`ID: ${currentSample.id}`} sx={{ fontFamily: "monospace", fontSize: "0.72rem" }} />
-                          {currentSample.is_disagree && (
-                            <Chip size="small" color="warning" label="🔥 旧版答错 · SOTA逆转" />
-                          )}
-                          {!currentSample.has_copy && (
-                            <Chip size="small" color="info" label="🖼️ 无文案纯海报" />
-                          )}
-                        </>
-                      ) : (
-                        <Chip size="small" color="info" variant="outlined" label={imageUri ? `自定义图片：${imageName}` : "自定义业务输入"} />
-                      )}
-                    </Stack>
+                    <Typography sx={{ fontSize: "0.72rem", color: "text.secondary", mb: 0.3 }}>
+                      {currentSample ? "测试集参考标签" : "素材来源"}
+                    </Typography>
+                    <Typography noWrap sx={{ fontSize: "0.92rem", fontWeight: 600, mb: 0.75 }}>
+                      {currentSample ? currentSample.gold : imageUri ? imageName : "自定义文本请求"}
+                    </Typography>
 
-                    {/* Modality Ablation ToggleButtonGroup */}
-                    <Box sx={{ mb: 1 }}>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.4, fontWeight: 600 }}>
-                        模态消融实验切换（一键检验模型真实看图能力）：
-                      </Typography>
-                      <ToggleButtonGroup
-                        size="small"
-                        exclusive
-                        color="primary"
-                        value={modalityMode}
-                        onChange={handleModalitySwitch}
-                        sx={{
-                          flexWrap: "wrap",
-                          "& .MuiToggleButton-root": { py: 0.35, px: 1.1, fontSize: "0.75rem", textTransform: "none" },
-                        }}
-                      >
-                        <ToggleButton value="full">
-                          <RestoreRounded sx={{ fontSize: 15, mr: 0.5 }} />
-                          完整字段
-                        </ToggleButton>
-                        <ToggleButton value="raw_ad">
-                          <ContentCutRounded sx={{ fontSize: 15, mr: 0.5 }} />
-                          剥离 OCR/Caption
-                        </ToggleButton>
-                        <ToggleButton value="pure_image">
-                          <VisibilityOffRounded sx={{ fontSize: 15, mr: 0.5 }} />
-                          纯看图盲测 (清空文字)
-                        </ToggleButton>
-                      </ToggleButtonGroup>
+                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mb: 1.25 }}>
+                      {currentSample?.is_disagree && (
+                        <Box
+                          component="span"
+                          sx={{
+                            px: 1,
+                            py: 0.25,
+                            borderRadius: "6px",
+                            fontSize: "0.7rem",
+                            fontWeight: 500,
+                            bgcolor: (t) => (t.palette.mode === "dark" ? "rgba(168,199,250,0.14)" : "#e8f0fe"),
+                            color: "primary.main",
+                          }}
+                        >
+                          旧版误判 · SOTA 修正样本
+                        </Box>
+                      )}
+                      {currentSample && !currentSample.has_copy && (
+                        <Box
+                          component="span"
+                          sx={{
+                            px: 1,
+                            py: 0.25,
+                            borderRadius: "6px",
+                            fontSize: "0.7rem",
+                            fontWeight: 500,
+                            bgcolor: (t) => (t.palette.mode === "dark" ? "#282a2c" : "#eef2f6"),
+                            color: "text.secondary",
+                          }}
+                        >
+                          无标题正文纯海报
+                        </Box>
+                      )}
+                      {modalityMode !== "full" && (
+                        <Box
+                          component="span"
+                          sx={{
+                            px: 1,
+                            py: 0.25,
+                            borderRadius: "6px",
+                            fontSize: "0.7rem",
+                            fontWeight: 500,
+                            bgcolor: (t) => (t.palette.mode === "dark" ? "rgba(253,214,99,0.15)" : "#fef7e0"),
+                            color: (t) => (t.palette.mode === "dark" ? "#fdd663" : "#b06000"),
+                          }}
+                        >
+                          {modalityMode === "pure_image" ? "已清空全部文本" : modalityMode === "raw_ad" ? "已剥离 OCR 与描述" : "自定义编辑"}
+                        </Box>
+                      )}
                     </Box>
 
-                    {/* Image Upload / Remove / Position */}
-                    <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", useFlexGap: true }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                       <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={handleUploadImage} />
-                      <Button size="small" variant="outlined" startIcon={<UploadFileRounded />} onClick={() => fileInputRef.current?.click()} sx={{ py: 0.25, fontSize: "0.75rem" }}>
-                        上传广告图
+                      <Button
+                        size="small"
+                        variant="text"
+                        startIcon={<FileUploadOutlined sx={{ fontSize: 15 }} />}
+                        onClick={() => fileInputRef.current?.click()}
+                        sx={{ px: 1, py: 0.25, minWidth: 0, fontSize: "0.75rem", color: "text.secondary" }}
+                      >
+                        上传图片
                       </Button>
                       {imageUri && (
                         <Button
                           size="small"
-                          color="error"
                           variant="text"
-                          startIcon={<DeleteOutlineRounded />}
+                          startIcon={<DeleteOutlineRounded sx={{ fontSize: 15 }} />}
                           onClick={() => {
                             setImageUri(null);
                             setImageName("");
                           }}
-                          sx={{ py: 0.25, fontSize: "0.75rem" }}
+                          sx={{ px: 1, py: 0.25, minWidth: 0, fontSize: "0.75rem", color: "text.secondary" }}
                         >
-                          移除图片
+                          移除
                         </Button>
                       )}
-                      <Select
-                        size="small"
-                        value={imgPos}
-                        onChange={(e) => setImgPos(e.target.value)}
-                        sx={{ height: 27, fontSize: "0.75rem" }}
-                      >
-                        <MenuItem value="start">image 键位置：开头</MenuItem>
-                        <MenuItem value="middle">image 键位置：中间</MenuItem>
-                        <MenuItem value="end">image 键位置：结尾</MenuItem>
-                      </Select>
-                    </Stack>
+                    </Box>
                   </Box>
-                </Stack>
-              </CardContent>
-            </Card>
+                </Box>
+              </Box>
 
-            {/* State JSON Editor */}
-            <CodeEditorCard
-              title="State 业务上下文 (JSON)"
-              icon={<DataObjectRounded fontSize="small" color="primary" />}
-              value={stateText}
-              onChange={(v) => updateStateEditor(v, "custom")}
-              error={stateErr}
-              minHeight={150}
-              actions={
-                <Button size="small" variant="text" onClick={formatJsonEditors} sx={{ py: 0, minWidth: 0, fontSize: "0.73rem" }}>
-                  格式化
-                </Button>
-              }
-            />
-
-            {/* Questions JSON Editor */}
-            <CodeEditorCard
-              title="Questions 结构化决策定义 (支持 choice / noul / score)"
-              icon={<PsychologyRounded fontSize="small" color="secondary" />}
-              value={questionsText}
-              onChange={updateQuestionsEditor}
-              error={questionsErr}
-              minHeight={175}
-              actions={
-                <Stack direction="row" spacing={0.5}>
+              {/* State & Questions Clean Split Editors */}
+              <MinimalJsonEditor
+                label="State"
+                metaText={stateFieldCount}
+                value={stateText}
+                onChange={(v) => updateStateEditor(v, "custom")}
+                error={stateErr}
+                sx={{ flex: "0 1 36%", minHeight: 120 }}
+                rightActions={
                   <Button
                     size="small"
-                    variant="outlined"
-                    startIcon={<AddCircleOutlineRounded sx={{ fontSize: 14 }} />}
-                    onClick={() => addQuestionPreset("noul")}
-                    sx={{ py: 0.1, px: 0.8, fontSize: "0.72rem" }}
+                    variant="text"
+                    onClick={formatJsonEditors}
+                    sx={{ px: 1, py: 0, minWidth: 0, fontSize: "0.73rem", color: "text.secondary" }}
                   >
-                    布尔题 (noul)
+                    格式化
                   </Button>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    color="secondary"
-                    startIcon={<AddCircleOutlineRounded sx={{ fontSize: 14 }} />}
-                    onClick={() => addQuestionPreset("score")}
-                    sx={{ py: 0.1, px: 0.8, fontSize: "0.72rem" }}
-                  >
-                    打分题 (score)
-                  </Button>
-                </Stack>
-              }
-            />
-          </Box>
+                }
+              />
 
-          {/* Right Column: Action Toolbar + MUI Tabs + Results */}
-          <Box sx={{ display: "flex", flexDirection: "column", minHeight: 0, bgcolor: "background.paper" }}>
-            {/* Model & Inference Controls Bar */}
-            <Box
-              sx={{
-                p: 1.5,
-                borderBottom: 1,
-                borderColor: "divider",
-                display: "flex",
-                flexWrap: "wrap",
-                alignItems: "center",
-                gap: 1.25,
-                bgcolor: (t) => (t.palette.mode === "dark" ? "rgba(255,255,255,0.015)" : "#fafbfe"),
-              }}
-            >
-              <FormControl size="small" sx={{ minWidth: 270, flex: "1 1 260px" }}>
-                <InputLabel id="model-select-label">当前单测模型</InputLabel>
-                <Select
-                  labelId="model-select-label"
-                  label="当前单测模型"
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                  sx={{ fontSize: "0.82rem" }}
-                >
-                  {groupedCatalog.map(([groupName, items]) => [
-                    <ListSubheader key={`hdr-${groupName}`} sx={{ lineHeight: "28px", fontWeight: 800, fontSize: "0.72rem", color: "primary.main" }}>
-                      {groupName}
-                    </ListSubheader>,
-                    ...items.map((m) => (
-                      <MenuItem key={m.id} value={m.id} sx={{ fontSize: "0.8125rem", py: 0.75 }}>
-                        <Box sx={{ display: "flex", flexDirection: "column" }}>
-                          <Typography variant="body2" sx={{ fontWeight: m.id.includes("sota") ? 700 : 500, fontSize: "0.8125rem" }}>
-                            {m.title}
-                          </Typography>
-                          {m.note && (
-                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.7rem" }}>
-                              {m.note}
-                            </Typography>
-                          )}
-                        </Box>
-                      </MenuItem>
-                    )),
-                  ])}
-                </Select>
-              </FormControl>
+              <MinimalJsonEditor
+                label="Questions"
+                metaText={questionCountText}
+                value={questionsText}
+                onChange={updateQuestionsEditor}
+                error={questionsErr}
+                sx={{ flex: "1 1 64%", minHeight: 160 }}
+                rightActions={
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <Button
+                      size="small"
+                      variant="text"
+                      startIcon={<AddRounded sx={{ fontSize: 14 }} />}
+                      onClick={() => addQuestionPreset("noul")}
+                      sx={{ px: 1, py: 0, minWidth: 0, fontSize: "0.73rem", color: "text.secondary", whiteSpace: "nowrap" }}
+                    >
+                      布尔判定
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="text"
+                      startIcon={<AddRounded sx={{ fontSize: 14 }} />}
+                      onClick={() => addQuestionPreset("score")}
+                      sx={{ px: 1, py: 0, minWidth: 0, fontSize: "0.73rem", color: "text.secondary", whiteSpace: "nowrap" }}
+                    >
+                      等级评分
+                    </Button>
+                  </Box>
+                }
+              />
+            </Box>
 
-              <Tooltip title="启用在验证集上拟合锁定的零泄漏温度系数 T*，消除微调过自信并校准概率（不改变 argmax 预测）">
-                <FormControlLabel
-                  control={<Switch size="small" checked={calibrated} onChange={(e) => setCalibrated(e.target.checked)} />}
-                  label={<Typography variant="caption" sx={{ fontWeight: 600 }}>零泄漏锁温 (T*)</Typography>}
-                  sx={{ mr: 0.5 }}
-                />
-              </Tooltip>
-
-              <Tooltip title="对 26 个候选选项做 5 次均匀循环移位并融合去均值 Logits，彻底消除位置偏置">
-                <FormControlLabel
-                  control={<Switch size="small" color="secondary" checked={tta5} onChange={(e) => setTta5(e.target.checked)} />}
-                  label={<Typography variant="caption" sx={{ fontWeight: 600 }}>5 视角 TTA5</Typography>}
-                  sx={{ mr: 0.5 }}
-                />
-              </Tooltip>
-
-              <Button
-                variant="contained"
-                color="primary"
-                disabled={isBusy}
-                startIcon={<PlayArrowRounded />}
-                onClick={() => runSingleModel()}
-                sx={{ height: 38, px: 2 }}
-              >
-                单模型推理 ⌘↵
-              </Button>
-
-              <Button
-                variant="contained"
-                color="secondary"
-                disabled={isBusy}
-                startIcon={<BoltRounded />}
-                onClick={runCompareAll}
+            {/* Right Workspace Column: Output */}
+            <Box sx={{ display: "flex", flexDirection: "column", minHeight: 0, position: "relative" }}>
+              {/* M3 Underline Tabs */}
+              <Box
                 sx={{
-                  height: 38,
+                  height: 44,
                   px: 2,
-                  background: (t) =>
-                    t.palette.mode === "dark"
-                      ? "linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)"
-                      : "linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)",
+                  borderBottom: 1,
+                  borderColor: "divider",
+                  display: "flex",
+                  alignItems: "center",
+                  flexShrink: 0,
                 }}
               >
-                一键横评全部 {catalog.length || 10} 种方法
-              </Button>
-            </Box>
+                <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)} sx={{ minHeight: 44 }}>
+                  <Tab label="推理结果" />
+                  <Tab label={`模型对比 (${catalog.length || 10})`} />
+                  <Tab label="Token 视图" />
+                </Tabs>
 
-            {isBusy && <LinearProgress color={loadingCompare ? "secondary" : "primary"} sx={{ flexShrink: 0 }} />}
+                <Box sx={{ flex: 1 }} />
 
-            {/* Navigation Tabs */}
-            <Box sx={{ px: 2, borderBottom: 1, borderColor: "divider", display: "flex", alignItems: "center" }}>
-              <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)} sx={{ minHeight: 42 }}>
-                <Tab label="单模型深度解析" sx={{ minHeight: 42, fontWeight: 600 }} />
-                <Tab
-                  label={`⚡ ${catalog.length || 10} 方法同题横评`}
-                  sx={{ minHeight: 42, fontWeight: 600 }}
+                {activeTab === 0 && singleResult?.body?.usage && (
+                  <Typography
+                    sx={{
+                      fontSize: "0.74rem",
+                      color: "text.secondary",
+                      fontFamily: '"Google Sans Mono", Menlo, monospace',
+                      mr: 1,
+                      display: { xs: "none", lg: "block" },
+                    }}
+                  >
+                    {singleResult.body.usage.input_tokens.toLocaleString()} tok · {singleResult.body.evaluation_time_ms} ms
+                  </Typography>
+                )}
+
+                <Tooltip title="复制 JSON">
+                  <IconButton
+                    size="small"
+                    onClick={() => {
+                      const payload = activeTab === 2 ? promptResult : activeTab === 1 ? compareResult : singleResult?.body;
+                      if (!payload) return;
+                      navigator.clipboard?.writeText(JSON.stringify(payload, null, 2));
+                      setToast("已复制 JSON");
+                    }}
+                    sx={{ color: "text.secondary" }}
+                  >
+                    <ContentCopyRounded sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+
+              {isBusy && (
+                <LinearProgress
+                  sx={{
+                    position: "absolute",
+                    top: 43,
+                    left: 0,
+                    right: 0,
+                    height: 2,
+                    zIndex: 2,
+                  }}
                 />
-                <Tab label="🔍 Prompt & Token 透视" sx={{ minHeight: 42, fontWeight: 600 }} />
-              </Tabs>
-              <Box sx={{ flex: 1 }} />
-              <Tooltip title="复制当前视图原始 JSON">
-                <Button size="small" startIcon={<ContentCopyRounded sx={{ fontSize: 15 }} />} onClick={copyCurrentJson}>
-                  复制 JSON
-                </Button>
-              </Tooltip>
-            </Box>
+              )}
 
-            {/* Tab Panels Scroll Area */}
-            <Box sx={{ flex: 1, overflow: "auto", p: 2, bgcolor: "background.default" }}>
-              {/* TAB 0: Single Model Deep Result */}
-              {activeTab === 0 && (
-                <>
-                  {!singleResult ? (
-                    <Paper variant="outlined" sx={{ p: 4, textAlign: "center" }}>
-                      <AutoAwesomeRounded color="primary" sx={{ fontSize: 40, mb: 1, opacity: 0.8 }} />
-                      <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.5 }}>
-                        准备就绪：体验单模型推理或一键十模型同题横评
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 520, mx: "auto", mb: 2.5 }}>
-                        上方已为您载入测试集样本。您可以点击「一键横评全部方法」在 2 秒内直观对比旧版 v1、纯文本与多模态 SOTA 的预测及置信度差异，或切换左侧「纯看图盲测」观察视觉能力的决定性作用。
-                      </Typography>
-                      <Stack direction="row" spacing={1.5} justifyContent="center">
-                        <Button variant="contained" startIcon={<PlayArrowRounded />} onClick={() => runSingleModel()}>
-                          运行当前模型
-                        </Button>
-                        <Button variant="contained" color="secondary" startIcon={<BoltRounded />} onClick={runCompareAll}>
-                          一键横评全部方法
-                        </Button>
-                      </Stack>
-                    </Paper>
-                  ) : (
-                    <>
-                      {/* Gold Comparison Alert */}
-                      {singleIsCorrect !== null && (
-                        <Alert
-                          severity={singleIsCorrect ? "success" : "error"}
-                          icon={singleIsCorrect ? <CheckCircleRounded /> : <CancelRounded />}
-                          sx={{ mb: 2, fontWeight: 500 }}
-                        >
-                          <AlertTitle sx={{ fontWeight: 800, mb: 0.25 }}>
-                            {singleIsCorrect ? "预测正确（命中测试集真实标签）" : "预测错误（与测试集真实标签不符）"}
-                          </AlertTitle>
-                          模型选择：<strong>「{singleIndustryAns.choice}」</strong>
-                          {!singleIsCorrect && (
-                            <>
-                              {" "}｜ 测试集真实答案：<strong>「{gold}」</strong>
-                            </>
-                          )}
-                          {singleIndustryAns.probabilities?.[gold] != null && (
-                            <>（赋予真实标签概率：<strong>{(singleIndustryAns.probabilities[gold] * 100).toFixed(1)}%</strong>）</>
-                          )}
-                        </Alert>
-                      )}
-
-                      {/* Metadata Chips */}
-                      {singleResult.body?.method_meta && (
-                        <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: "wrap", useFlexGap: true }}>
-                          <Chip size="small" color="primary" label={singleResult.body.method_meta.label || singleResult.body.model} />
-                          <Chip size="small" variant="outlined" icon={<CodeRounded />} label={`格式: ${singleResult.body.method_meta.prompt_format}`} />
-                          <Chip
-                            size="small"
-                            variant="outlined"
-                            label={singleResult.body.method_meta.multimodal ? "图文多模态" : "纯文本 (忽略图片)"}
-                          />
-                          <Chip
-                            size="small"
-                            variant="outlined"
-                            label={`候选头: ${singleResult.body.method_meta.fp32_head ? "FP32 精确头" : "BF16 旧头"}`}
-                          />
-                          <Chip size="small" variant="outlined" label={`温度 T = ${singleResult.body.method_meta.temperature_applied}`} />
-                          {singleResult.body.usage && (
-                            <Chip size="small" variant="outlined" icon={<TokenRounded />} label={`输入 ${singleResult.body.usage.input_tokens} tok`} />
-                          )}
-                          {singleResult.body.evaluation_time_ms != null && (
-                            <Chip size="small" variant="outlined" icon={<SpeedRounded />} label={`GPU ${singleResult.body.evaluation_time_ms} ms`} />
-                          )}
-                        </Stack>
-                      )}
-
-                      {/* Visual Probability Bars for Every Question */}
-                      {singleResult.body?.answers &&
-                        Object.entries(singleResult.body.answers).map(([qid, ans]) => (
-                          <QuestionDistributionCard
-                            key={qid}
-                            qid={qid}
-                            ans={ans}
-                            gold={qid === "industry" ? gold : null}
-                          />
-                        ))}
-
-                      {/* Raw JSON Accordion */}
-                      <Accordion variant="outlined" defaultExpanded={false} sx={{ borderRadius: "10px !important", "&:before": { display: "none" } }}>
-                        <AccordionSummary expandIcon={<ExpandMoreRounded />}>
-                          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                            查看 System One 标准接口响应 JSON (`HTTP {singleResult.status}`)
-                          </Typography>
-                        </AccordionSummary>
-                        <AccordionDetails sx={{ pt: 0 }}>
+              {/* Output Scroll Content */}
+              <Box sx={{ flex: 1, overflow: "auto", p: 2.5 }}>
+                {/* TAB 0: Single Model Output */}
+                {activeTab === 0 && (
+                  <>
+                    {!singleResult ? (
+                      <Box sx={{ py: 8, textAlign: "center", color: "text.secondary" }}>
+                        <Typography sx={{ fontSize: "0.85rem" }}>
+                          {loadingSingle ? "正在执行推理…" : "点击右上角「运行」查看模型输出"}
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <>
+                        {/* Quiet Summary Header Card */}
+                        {singleIndustryAns && (
                           <Box
-                            component="pre"
                             sx={{
-                              m: 0,
-                              p: 1.5,
-                              borderRadius: 2,
-                              overflow: "auto",
-                              fontSize: "12px",
-                              lineHeight: 1.55,
-                              fontFamily: '"JetBrains Mono", ui-monospace, Menlo, monospace',
-                              bgcolor: (t) => (t.palette.mode === "dark" ? "#0b0f19" : "#f8fafc"),
+                              p: 2,
+                              mb: 2.75,
+                              borderRadius: "12px",
+                              bgcolor: (t) => (t.palette.mode === "dark" ? "#26282b" : "#f8fafd"),
                               border: 1,
                               borderColor: "divider",
+                              display: "flex",
+                              alignItems: "flex-start",
+                              justifyContent: "space-between",
+                              gap: 2,
                             }}
                           >
-                            {JSON.stringify(singleResult.body, null, 2)}
+                            <Box>
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
+                                {singleIsCorrect !== null && (
+                                  <Box
+                                    component="span"
+                                    sx={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: 0.4,
+                                      px: 1,
+                                      py: 0.25,
+                                      borderRadius: 999,
+                                      fontSize: "0.72rem",
+                                      fontWeight: 600,
+                                      bgcolor: (t) =>
+                                        singleIsCorrect
+                                          ? t.palette.mode === "dark"
+                                            ? "rgba(129,201,149,0.16)"
+                                            : "#e6f4ea"
+                                          : t.palette.mode === "dark"
+                                          ? "rgba(242,139,130,0.16)"
+                                          : "#fce8e6",
+                                      color: (t) =>
+                                        singleIsCorrect
+                                          ? t.palette.mode === "dark"
+                                            ? "#81c995"
+                                            : "#146c2e"
+                                          : t.palette.mode === "dark"
+                                          ? "#f28b82"
+                                          : "#b3261e",
+                                    }}
+                                  >
+                                    {singleIsCorrect ? <CheckRounded sx={{ fontSize: 13 }} /> : <CloseRounded sx={{ fontSize: 13 }} />}
+                                    {singleIsCorrect ? "预测一致" : "预测偏差"}
+                                  </Box>
+                                )}
+                                <Typography sx={{ fontSize: "1.05rem", fontWeight: 600 }}>
+                                  {singleIndustryAns.choice}
+                                </Typography>
+                              </Box>
+
+                              <Typography sx={{ fontSize: "0.78rem", color: "text.secondary" }}>
+                                {singleIsCorrect === false && gold ? (
+                                  <>
+                                    测试集参考标签：<strong>{gold}</strong>
+                                    {singleIndustryAns.probabilities?.[gold] != null
+                                      ? `（当前模型赋予概率 ${(singleIndustryAns.probabilities[gold] * 100).toFixed(1)}%）`
+                                      : ""}
+                                  </>
+                                ) : (
+                                  <>
+                                    首选概率 {((singleIndustryAns.probabilities?.[singleIndustryAns.choice] || 0) * 100).toFixed(1)}%
+                                    {singleResult.body?.method_meta
+                                      ? ` · 校准温度 T = ${singleResult.body.method_meta.temperature_applied} · 视角 ${singleResult.body.method_meta.tta_views_used}×`
+                                      : ""}
+                                  </>
+                                )}
+                              </Typography>
+                            </Box>
+
+                            <Typography sx={{ fontSize: "0.75rem", color: "text.secondary", textAlign: "right", flexShrink: 0 }}>
+                              {MODEL_META[singleResult.body?.model]?.name || singleResult.body?.model}
+                            </Typography>
                           </Box>
-                        </AccordionDetails>
-                      </Accordion>
-                    </>
-                  )}
-                </>
-              )}
+                        )}
 
-              {/* TAB 1: Compare All 10 Methods */}
-              {activeTab === 1 && (
-                <>
-                  {!compareResult ? (
-                    <Paper variant="outlined" sx={{ p: 4, textAlign: "center" }}>
-                      <BoltRounded color="secondary" sx={{ fontSize: 40, mb: 1 }} />
-                      <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
-                        {loadingCompare ? "正在同一条样本上并行评测全部模型（约 1~2 秒）…" : "尚未运行全方法横评"}
-                      </Typography>
-                      {!loadingCompare && (
-                        <Button variant="contained" color="secondary" startIcon={<BoltRounded />} onClick={runCompareAll}>
-                          立即横评全部方法
-                        </Button>
-                      )}
-                    </Paper>
-                  ) : (
-                    <>
-                      {/* 4 Summary KPI Cards */}
-                      {compareKpis && (
-                        <Box
-                          sx={{
-                            display: "grid",
-                            gridTemplateColumns: { xs: "1fr 1fr", lg: "repeat(4, 1fr)" },
-                            gap: 1.25,
-                            mb: 2,
-                          }}
-                        >
-                          <Paper variant="outlined" sx={{ p: 1.5 }}>
-                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                              本道题命中模型数
-                            </Typography>
-                            <Typography variant="h6" sx={{ fontWeight: 800, mt: 0.25 }}>
-                              {compareKpis.correctCount != null ? `${compareKpis.correctCount} / ${compareKpis.total}` : `${compareKpis.total} 个模型`}
-                            </Typography>
-                            <Typography variant="caption" color="success.main">
-                              {compareKpis.gold ? `真实答案：${compareKpis.gold}` : "自定义无标签样本"}
-                            </Typography>
-                          </Paper>
+                        {singleResult.body?.answers &&
+                          Object.entries(singleResult.body.answers).map(([qid, ans]) => (
+                            <ProbabilityDistribution
+                              key={qid}
+                              qid={qid}
+                              ans={ans}
+                              gold={qid === "industry" ? gold : null}
+                            />
+                          ))}
 
-                          <Paper variant="outlined" sx={{ p: 1.5 }}>
-                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                              4B 多模态 vs 纯文本 (真实类概率)
-                            </Typography>
-                            <Typography variant="h6" sx={{ fontWeight: 800, mt: 0.25, color: "primary.main" }}>
-                              {compareKpis.pGoldSota4b != null && compareKpis.pGoldText4b != null
-                                ? `${(compareKpis.pGoldSota4b * 100).toFixed(1)}% vs ${(compareKpis.pGoldText4b * 100).toFixed(1)}%`
-                                : "—"}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {compareKpis.pGoldSota4b != null && compareKpis.pGoldText4b != null
-                                ? `视觉信号增益 ${((compareKpis.pGoldSota4b - compareKpis.pGoldText4b) * 100 >= 0 ? "+" : "") + ((compareKpis.pGoldSota4b - compareKpis.pGoldText4b) * 100).toFixed(1)} pp`
-                                : "对比多模态与纯文本置信度"}
-                            </Typography>
-                          </Paper>
-
-                          <Paper variant="outlined" sx={{ p: 1.5 }}>
-                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                              sandwich_v3 vs 旧版 v1 长度
-                            </Typography>
-                            <Typography variant="h6" sx={{ fontWeight: 800, mt: 0.25 }}>
-                              {compareKpis.tokV3 && compareKpis.tokV1 ? `${compareKpis.tokV3} vs ${compareKpis.tokV1}` : "—"}
-                            </Typography>
-                            <Typography variant="caption" color="success.main">
-                              {compareKpis.tokV3 && compareKpis.tokV1
-                                ? `消除双重 JSON 节省 ${compareKpis.tokV1 - compareKpis.tokV3} tok (-${(((compareKpis.tokV1 - compareKpis.tokV3) / compareKpis.tokV1) * 100).toFixed(1)}%)`
-                                : "Token 紧凑度对比"}
-                            </Typography>
-                          </Paper>
-
-                          <Paper variant="outlined" sx={{ p: 1.5 }}>
-                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                              全量横评总耗时 & 配置
-                            </Typography>
-                            <Typography variant="h6" sx={{ fontWeight: 800, mt: 0.25 }}>
-                              {compareResult.total_wall_ms} ms
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              锁温校准: {compareResult.calibrated ? "开启" : "关闭"} · 视角: {compareResult.tta_views}x
-                            </Typography>
-                          </Paper>
+                        {/* Collapsible Raw JSON */}
+                        <Box sx={{ borderTop: 1, borderColor: "divider", pt: 1.5 }}>
+                          <Button
+                            size="small"
+                            variant="text"
+                            startIcon={rawJsonOpen ? <KeyboardArrowDownRounded /> : <KeyboardArrowRightRounded />}
+                            onClick={() => setRawJsonOpen((v) => !v)}
+                            sx={{ px: 1, color: "text.secondary", fontSize: "0.76rem" }}
+                          >
+                            原始 System One 响应 JSON
+                          </Button>
+                          <Collapse in={rawJsonOpen}>
+                            <Box
+                              component="pre"
+                              sx={{
+                                mt: 1,
+                                mb: 0,
+                                p: 1.75,
+                                borderRadius: "10px",
+                                overflow: "auto",
+                                fontSize: "12px",
+                                lineHeight: 1.55,
+                                fontFamily: '"Google Sans Mono", "SF Mono", Menlo, monospace',
+                                bgcolor: (t) => (t.palette.mode === "dark" ? "#141517" : "#f8fafd"),
+                                border: 1,
+                                borderColor: "divider",
+                              }}
+                            >
+                              {JSON.stringify(singleResult.body, null, 2)}
+                            </Box>
+                          </Collapse>
                         </Box>
-                      )}
+                      </>
+                    )}
+                  </>
+                )}
 
-                      {/* Comparison MUI Table */}
-                      <TableContainer component={Paper} variant="outlined">
-                        <Table size="small">
-                          <TableHead>
-                            <TableRow sx={{ bgcolor: (t) => (t.palette.mode === "dark" ? "rgba(255,255,255,0.03)" : "#f8fafc") }}>
-                              <TableCell>方法 / 模型</TableCell>
-                              <TableCell>协议 & 温度</TableCell>
-                              <TableCell>预测结论</TableCell>
-                              <TableCell sx={{ minWidth: 120 }}>Top-1 概率</TableCell>
-                              <TableCell sx={{ minWidth: 120 }}>真实标签概率</TableCell>
-                              <TableCell align="right">Token</TableCell>
-                              <TableCell align="right">延迟</TableCell>
-                              <TableCell align="center">透视</TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {compareResult.results.map((item) => {
-                              const catInfo = catalog.find((c) => c.id === item.model) || {};
-                              const isSota = item.model.includes("sota") && !item.model.includes("text");
-                              if (!item.ok) {
-                                return (
-                                  <TableRow key={item.model}>
-                                    <TableCell>{catInfo.title || item.model}</TableCell>
-                                    <TableCell colSpan={7} sx={{ color: "error.main" }}>错误: {item.error}</TableCell>
-                                  </TableRow>
-                                );
-                              }
-                              const qid = compareKpis?.qid || "industry";
-                              const res = item.result;
-                              const ans = res.answers?.[qid] || {};
-                              const meta = res.method_meta || {};
-                              const pred =
-                                ans.type === "choice"
-                                  ? ans.choice
-                                  : ans.type === "noul"
-                                  ? `P(true)=${ans.noul}`
-                                  : `score=${ans.score}`;
-                              const probs = ans.probabilities || {};
-                              const topP = ans.type === "choice" && probs[ans.choice] != null ? probs[ans.choice] : null;
-                              const goldP = gold && probs[gold] != null ? probs[gold] : null;
-                              const isOk = gold && ans.type === "choice" ? pred === gold : null;
-
-                              return (
-                                <TableRow
-                                  key={item.model}
-                                  hover
+                {/* TAB 1: All-Methods Benchmark */}
+                {activeTab === 1 && (
+                  <>
+                    {!compareResult ? (
+                      <Box sx={{ py: 8, textAlign: "center" }}>
+                        <Typography sx={{ fontSize: "0.85rem", color: "text.secondary", mb: 2 }}>
+                          {loadingCompare
+                            ? "正在并行评测全部已加载模型…"
+                            : "在同一输入下并行对比全部 10 种模型的预测结果、校准概率与 Token 开销"}
+                        </Typography>
+                        {!loadingCompare && (
+                          <Button variant="contained" size="small" onClick={runCompareAll}>
+                            开始全模型对比
+                          </Button>
+                        )}
+                      </Box>
+                    ) : (
+                      <>
+                        {/* Unified Google Metric Strip */}
+                        {compareKpis && (
+                          <Box
+                            sx={{
+                              display: "grid",
+                              gridTemplateColumns: "repeat(4, 1fr)",
+                              borderRadius: "12px",
+                              bgcolor: (t) => (t.palette.mode === "dark" ? "#26282b" : "#f8fafd"),
+                              border: 1,
+                              borderColor: "divider",
+                              mb: 2,
+                              overflow: "hidden",
+                            }}
+                          >
+                            {[
+                              {
+                                k: "命中模型",
+                                v: compareKpis.correctCount != null ? `${compareKpis.correctCount} / ${compareKpis.total}` : `${compareKpis.total}`,
+                                sub: compareKpis.gold ? `参考：${compareKpis.gold}` : "无参考标签",
+                              },
+                              {
+                                k: "4B 视觉增益",
+                                v:
+                                  compareKpis.pGoldSota4b != null && compareKpis.pGoldText4b != null
+                                    ? `${((compareKpis.pGoldSota4b - compareKpis.pGoldText4b) * 100 >= 0 ? "+" : "") + ((compareKpis.pGoldSota4b - compareKpis.pGoldText4b) * 100).toFixed(1)} pp`
+                                    : "—",
+                                sub:
+                                  compareKpis.pGoldSota4b != null && compareKpis.pGoldText4b != null
+                                    ? `${(compareKpis.pGoldSota4b * 100).toFixed(1)}% vs ${(compareKpis.pGoldText4b * 100).toFixed(1)}%`
+                                    : "目标类概率",
+                              },
+                              {
+                                k: "Prompt 压缩",
+                                v:
+                                  compareKpis.tokV3 && compareKpis.tokV1
+                                    ? `-${(((compareKpis.tokV1 - compareKpis.tokV3) / compareKpis.tokV1) * 100).toFixed(1)}%`
+                                    : "—",
+                                sub: compareKpis.tokV3 && compareKpis.tokV1 ? `${compareKpis.tokV3} vs ${compareKpis.tokV1} tok` : "Token 开销",
+                              },
+                              {
+                                k: "总耗时",
+                                v: `${(compareResult.total_wall_ms / 1000).toFixed(2)} s`,
+                                sub: `校准${compareResult.calibrated ? "开" : "关"} · ${compareResult.tta_views}× 视角`,
+                              },
+                            ].map((m, idx) => (
+                              <Box
+                                key={m.k}
+                                sx={{
+                                  px: 1.5,
+                                  py: 1.25,
+                                  minWidth: 0,
+                                  borderLeft: idx > 0 ? 1 : 0,
+                                  borderColor: "divider",
+                                }}
+                              >
+                                <Typography noWrap sx={{ fontSize: "0.71rem", color: "text.secondary" }}>{m.k}</Typography>
+                                <Typography
+                                  noWrap
                                   sx={{
-                                    bgcolor: isSota
-                                      ? (t) => alpha(t.palette.primary.main, t.palette.mode === "dark" ? 0.08 : 0.035)
-                                      : "inherit",
+                                    fontSize: "1rem",
+                                    fontWeight: 600,
+                                    my: 0.15,
+                                    fontVariantNumeric: "tabular-nums",
                                   }}
                                 >
-                                  <TableCell>
-                                    <Typography variant="body2" sx={{ fontWeight: isSota ? 700 : 600, fontSize: "0.8rem" }}>
-                                      {catInfo.title || item.model}
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.7rem" }}>
-                                      {catInfo.note || item.model}
-                                    </Typography>
-                                  </TableCell>
-                                  <TableCell>
-                                    <Stack spacing={0.25}>
-                                      <Typography variant="caption" sx={{ fontFamily: "monospace", fontWeight: 600 }}>
-                                        {meta.prompt_format}
-                                      </Typography>
-                                      <Typography variant="caption" color="text.secondary">
-                                        {meta.multimodal ? "图文" : "纯文本"} · T={meta.temperature_applied}
-                                      </Typography>
-                                    </Stack>
-                                  </TableCell>
-                                  <TableCell>
-                                    {isOk !== null ? (
-                                      <Chip
-                                        size="small"
-                                        color={isOk ? "success" : "error"}
-                                        variant={isOk ? "filled" : "outlined"}
-                                        label={`${isOk ? "✓" : "✗"} ${pred}`}
-                                        sx={{ fontWeight: 700, maxWidth: 175 }}
-                                      />
-                                    ) : (
-                                      <Chip size="small" variant="outlined" label={pred} />
-                                    )}
-                                  </TableCell>
-                                  <TableCell>
-                                    {topP != null ? (
-                                      <Box>
-                                        <Typography variant="caption" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-                                          {(topP * 100).toFixed(1)}%
-                                        </Typography>
-                                        <LinearProgress
-                                          variant="determinate"
-                                          value={Math.max(1, topP * 100)}
-                                          color={isOk === false ? "error" : "primary"}
-                                          sx={{ height: 5, borderRadius: 99, mt: 0.3 }}
-                                        />
-                                      </Box>
-                                    ) : (
-                                      "—"
-                                    )}
-                                  </TableCell>
-                                  <TableCell>
-                                    {goldP != null ? (
-                                      <Box>
-                                        <Typography variant="caption" sx={{ fontWeight: 700, color: "success.main", fontVariantNumeric: "tabular-nums" }}>
-                                          {(goldP * 100).toFixed(1)}%
-                                        </Typography>
-                                        <LinearProgress
-                                          variant="determinate"
-                                          value={Math.max(1, goldP * 100)}
-                                          color="success"
-                                          sx={{ height: 5, borderRadius: 99, mt: 0.3 }}
-                                        />
-                                      </Box>
-                                    ) : (
-                                      "—"
-                                    )}
-                                  </TableCell>
-                                  <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums", fontFamily: "monospace" }}>
-                                    {res.usage?.input_tokens}
-                                  </TableCell>
-                                  <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                                    {res.evaluation_time_ms} ms
-                                  </TableCell>
-                                  <TableCell align="center" sx={{ whiteSpace: "nowrap" }}>
-                                    <Button
-                                      size="small"
-                                      variant="outlined"
-                                      onClick={() => fetchPromptOnly(item.model)}
-                                      sx={{ py: 0.2, px: 1, fontSize: "0.72rem", minWidth: 0 }}
-                                    >
-                                      Prompt
-                                    </Button>
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                      </TableContainer>
-                    </>
-                  )}
-                </>
-              )}
-
-              {/* TAB 2: Prompt & Token Stream Inspector */}
-              {activeTab === 2 && (
-                <>
-                  {/* Quick In-Tab Model Switcher for Instant Prompt Format Diffing */}
-                  <Paper variant="outlined" sx={{ p: 1.5, mb: 2, display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                      切换模型实时对比底层 Prompt 构造：
-                    </Typography>
-                    <FormControl size="small" sx={{ minWidth: 280 }}>
-                      <Select
-                        value={promptResult?.model || selectedModel}
-                        onChange={(e) => fetchPromptOnly(e.target.value)}
-                        sx={{ fontSize: "0.8rem" }}
-                      >
-                        {catalog.map((m) => (
-                          <MenuItem key={m.id} value={m.id} sx={{ fontSize: "0.8rem" }}>
-                            {m.title}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                    <Button size="small" variant="outlined" onClick={() => fetchPromptOnly(selectedModel)}>
-                      刷新当前 Prompt
-                    </Button>
-                  </Paper>
-
-                  {!promptResult ? (
-                    <Paper variant="outlined" sx={{ p: 4, textAlign: "center" }}>
-                      <CodeRounded color="primary" sx={{ fontSize: 40, mb: 1 }} />
-                      <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
-                        点击下方按钮透视当前样本的底层 Token 序列与视觉 Patch 网格
-                      </Typography>
-                      <Button variant="contained" onClick={() => fetchPromptOnly(selectedModel)}>
-                        生成 Prompt 透视图
-                      </Button>
-                    </Paper>
-                  ) : (
-                    <>
-                      {/* Summary Chips */}
-                      <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: "wrap", useFlexGap: true }}>
-                        <Chip size="small" color="primary" label={`模型: ${promptResult.model}`} />
-                        <Chip size="small" color="secondary" variant="outlined" label={`协议: ${promptResult.summary?.prompt_format}`} />
-                        <Chip size="small" variant="outlined" label={`总 Token: ${promptResult.summary?.total_tokens}`} />
-                        <Chip size="small" color="info" variant="outlined" label={`视觉 <|image_pad|>: ${promptResult.summary?.image_tokens}`} />
-                        {promptResult.rendered?.image?.grid_patches_thw && (
-                          <Chip
-                            size="small"
-                            variant="outlined"
-                            label={`视觉网格 T×H×W: ${promptResult.rendered.image.grid_patches_thw.join("×")}`}
-                          />
+                                  {m.v}
+                                </Typography>
+                                <Typography noWrap title={m.sub} sx={{ fontSize: "0.69rem", color: "text.secondary" }}>
+                                  {m.sub}
+                                </Typography>
+                              </Box>
+                            ))}
+                          </Box>
                         )}
-                        <Chip
-                          size="small"
-                          variant="outlined"
-                          label={`FP32 候选头: ${promptResult.summary?.fp32_head ? "是" : "否 (BF16)"}`}
-                        />
-                      </Stack>
 
-                      {/* Structured Segment Stream */}
-                      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-                        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.25 }}>
-                          1. 结构化分段 Token 流（紫色为特殊控制符 · 蓝色为多模态视觉 Patch · 灰底为文本内容）
+                        <TableContainer sx={{ overflowX: "auto" }}>
+                          <Table size="small" sx={{ "& .MuiTableCell-root": { px: 1, py: 0.9 } }}>
+                            <TableHead>
+                              <TableRow>
+                                <TableCell sx={{ pl: "4px !important" }}>模型</TableCell>
+                                <TableCell>预测结果</TableCell>
+                                <TableCell align="right">首选</TableCell>
+                                <TableCell align="right">参考类</TableCell>
+                                <TableCell align="right" sx={{ pr: "4px !important" }}>开销 / Token流</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {compareResult.results.map((item) => {
+                                const mInfo = MODEL_META[item.model] || { name: item.model, shortName: item.model, spec: "" };
+                                if (!item.ok) {
+                                  return (
+                                    <TableRow key={item.model}>
+                                      <TableCell sx={{ whiteSpace: "nowrap", pl: "4px !important" }}>{mInfo.shortName || mInfo.name}</TableCell>
+                                      <TableCell colSpan={4} sx={{ color: "error.main" }}>
+                                        {item.error}
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                }
+                                const qid = compareKpis?.qid || "industry";
+                                const res = item.result;
+                                const ans = res.answers?.[qid] || {};
+                                const pred =
+                                  ans.type === "choice"
+                                    ? ans.choice
+                                    : ans.type === "noul"
+                                    ? `true: ${ans.noul}`
+                                    : `score: ${ans.score}`;
+                                const probs = ans.probabilities || {};
+                                const topP = ans.type === "choice" && probs[ans.choice] != null ? probs[ans.choice] : null;
+                                const goldP = gold && probs[gold] != null ? probs[gold] : null;
+                                const isOk = gold && ans.type === "choice" ? pred === gold : null;
+
+                                return (
+                                  <TableRow key={item.model} hover>
+                                    <TableCell sx={{ whiteSpace: "nowrap", pl: "4px !important" }}>
+                                      <Typography sx={{ fontSize: "0.79rem", fontWeight: 500, lineHeight: 1.3 }}>
+                                        {mInfo.shortName || mInfo.name}
+                                      </Typography>
+                                      <Typography sx={{ fontSize: "0.68rem", color: "text.secondary", lineHeight: 1.25 }}>
+                                        {mInfo.spec}
+                                      </Typography>
+                                    </TableCell>
+
+                                    <TableCell sx={{ whiteSpace: "nowrap" }}>
+                                      <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.75 }}>
+                                        {isOk !== null && (
+                                          <Box
+                                            sx={{
+                                              width: 7,
+                                              height: 7,
+                                              borderRadius: "50%",
+                                              flexShrink: 0,
+                                              bgcolor: (t) =>
+                                                isOk
+                                                  ? t.palette.mode === "dark"
+                                                    ? "#81c995"
+                                                    : "#1e8e3e"
+                                                  : t.palette.mode === "dark"
+                                                  ? "#f28b82"
+                                                  : "#d93025",
+                                            }}
+                                          />
+                                        )}
+                                        <Typography
+                                          sx={{
+                                            fontSize: "0.79rem",
+                                            fontWeight: isOk ? 600 : 400,
+                                            color: isOk === false ? "text.secondary" : "text.primary",
+                                          }}
+                                        >
+                                          {pred}
+                                        </Typography>
+                                      </Box>
+                                    </TableCell>
+
+                                    <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
+                                      {topP != null ? (
+                                        <Box sx={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-end", width: 48 }}>
+                                          <Typography
+                                            sx={{
+                                              fontSize: "0.75rem",
+                                              fontFamily: '"Google Sans Mono", Menlo, monospace',
+                                              fontVariantNumeric: "tabular-nums",
+                                              fontWeight: 500,
+                                            }}
+                                          >
+                                            {(topP * 100).toFixed(1)}%
+                                          </Typography>
+                                          <Box
+                                            sx={{
+                                              width: "100%",
+                                              height: 3,
+                                              mt: 0.3,
+                                              borderRadius: 999,
+                                              bgcolor: (t) => (t.palette.mode === "dark" ? "#2c2d30" : "#eef2f6"),
+                                            }}
+                                          >
+                                            <Box
+                                              sx={{
+                                                height: "100%",
+                                                width: `${Math.max(2, topP * 100)}%`,
+                                                borderRadius: 999,
+                                                bgcolor: (t) =>
+                                                  isOk === false
+                                                    ? t.palette.mode === "dark"
+                                                      ? "#f28b82"
+                                                      : "#d93025"
+                                                    : "primary.main",
+                                              }}
+                                            />
+                                          </Box>
+                                        </Box>
+                                      ) : (
+                                        "—"
+                                      )}
+                                    </TableCell>
+
+                                    <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
+                                      {goldP != null ? (
+                                        <Box sx={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-end", width: 48 }}>
+                                          <Typography
+                                            sx={{
+                                              fontSize: "0.75rem",
+                                              fontFamily: '"Google Sans Mono", Menlo, monospace',
+                                              fontVariantNumeric: "tabular-nums",
+                                              color: (t) => (goldP >= 0.5 ? (t.palette.mode === "dark" ? "#81c995" : "#146c2e") : "text.secondary"),
+                                              fontWeight: goldP >= 0.5 ? 600 : 400,
+                                            }}
+                                          >
+                                            {(goldP * 100).toFixed(1)}%
+                                          </Typography>
+                                          <Box
+                                            sx={{
+                                              width: "100%",
+                                              height: 3,
+                                              mt: 0.3,
+                                              borderRadius: 999,
+                                              bgcolor: (t) => (t.palette.mode === "dark" ? "#2c2d30" : "#eef2f6"),
+                                            }}
+                                          >
+                                            <Box
+                                              sx={{
+                                                height: "100%",
+                                                width: `${Math.max(2, goldP * 100)}%`,
+                                                borderRadius: 999,
+                                                bgcolor: (t) => (t.palette.mode === "dark" ? "#81c995" : "#1e8e3e"),
+                                              }}
+                                            />
+                                          </Box>
+                                        </Box>
+                                      ) : (
+                                        "—"
+                                      )}
+                                    </TableCell>
+
+                                    <TableCell align="right" sx={{ whiteSpace: "nowrap", pr: "4px !important" }}>
+                                      <Box
+                                        component="button"
+                                        type="button"
+                                        onClick={() => fetchPromptOnly(item.model)}
+                                        title="点击查看该模型的 Prompt 与 Token 流"
+                                        sx={{
+                                          border: 0,
+                                          bgcolor: "transparent",
+                                          p: 0,
+                                          cursor: "pointer",
+                                          textAlign: "right",
+                                          fontFamily: '"Google Sans Mono", Menlo, monospace',
+                                          fontSize: "0.72rem",
+                                          color: "primary.main",
+                                          "&:hover": { textDecoration: "underline" },
+                                        }}
+                                      >
+                                        <div>{res.usage?.input_tokens} tok →</div>
+                                        <div style={{ color: theme.palette.text.secondary, fontSize: "0.68rem" }}>
+                                          {res.evaluation_time_ms} ms
+                                        </div>
+                                      </Box>
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      </>
+                    )}
+                  </>
+                )}
+
+                {/* TAB 2: Token & Prompt Stream */}
+                {activeTab === 2 && (
+                  <>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        flexWrap: "wrap",
+                        gap: 1.5,
+                        mb: 2,
+                      }}
+                    >
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                        <Typography sx={{ fontSize: "0.78rem", color: "text.secondary" }}>透视模型</Typography>
+                        <Select
+                          size="small"
+                          value={promptResult?.model || selectedModel}
+                          onChange={(e) => fetchPromptOnly(e.target.value)}
+                          sx={{ height: 32, fontSize: "0.8rem", borderRadius: "8px" }}
+                        >
+                          {displayCatalog.map((m) => (
+                            <MenuItem key={m.id} value={m.id} sx={{ fontSize: "0.8rem" }}>
+                              {m.name}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </Box>
+
+                      {promptResult?.summary && (
+                        <Typography sx={{ fontSize: "0.76rem", color: "text.secondary", fontFamily: "monospace" }}>
+                          {promptResult.summary.prompt_format} · {promptResult.summary.total_tokens?.toLocaleString()} tokens（图像{" "}
+                          {promptResult.summary.image_tokens}）
+                          {promptResult.rendered?.image?.grid_patches_thw
+                            ? ` · 网格 ${promptResult.rendered.image.grid_patches_thw.join("×")}`
+                            : ""}
                         </Typography>
+                      )}
+                    </Box>
+
+                    {!promptResult ? (
+                      <Box sx={{ py: 6, textAlign: "center" }}>
+                        <Button variant="outlined" size="small" onClick={() => fetchPromptOnly(selectedModel)}>
+                          加载 Token 视图
+                        </Button>
+                      </Box>
+                    ) : (
+                      <>
                         {(() => {
                           const groupedSegs = [];
                           for (const g of promptResult.segments || []) {
@@ -1569,18 +2011,26 @@ export default function App() {
                             groupedSegs[groupedSegs.length - 1].items.push(g);
                           }
                           return groupedSegs.map((sg, idx) => (
-                            <Box key={idx} sx={{ mb: 2 }}>
-                              <Divider textAlign="left" sx={{ mb: 1 }}>
-                                <Chip size="small" label={sg.name} sx={{ fontFamily: "monospace", fontSize: "0.72rem" }} />
-                              </Divider>
+                            <Box key={idx} sx={{ mb: 2.25 }}>
+                              <Typography
+                                sx={{
+                                  fontSize: "0.72rem",
+                                  fontWeight: 600,
+                                  color: "text.secondary",
+                                  fontFamily: "monospace",
+                                  mb: 0.75,
+                                }}
+                              >
+                                {sg.name}
+                              </Typography>
                               <Box
                                 sx={{
-                                  p: 1.5,
-                                  borderRadius: 2,
-                                  bgcolor: (t) => (t.palette.mode === "dark" ? "#0b0f19" : "#f8fafc"),
+                                  p: 1.75,
+                                  borderRadius: "10px",
+                                  bgcolor: (t) => (t.palette.mode === "dark" ? "#141517" : "#f8fafd"),
                                   border: 1,
                                   borderColor: "divider",
-                                  fontFamily: '"JetBrains Mono", ui-monospace, Menlo, monospace',
+                                  fontFamily: '"Google Sans Mono", "SF Mono", Menlo, monospace',
                                   fontSize: "12px",
                                   lineHeight: 1.75,
                                   whiteSpace: "pre-wrap",
@@ -1590,26 +2040,45 @@ export default function App() {
                                 {sg.items.map((it, k) => {
                                   if (it.kind === "special") {
                                     return (
-                                      <Chip
+                                      <Box
                                         key={k}
-                                        size="small"
-                                        color="secondary"
-                                        variant="outlined"
-                                        label={it.text}
-                                        sx={{ mx: 0.25, my: 0.2, height: 20, fontFamily: "monospace", fontSize: "11px" }}
-                                      />
+                                        component="span"
+                                        sx={{
+                                          display: "inline-block",
+                                          px: 0.7,
+                                          py: "1px",
+                                          mx: 0.25,
+                                          my: "1px",
+                                          borderRadius: "4px",
+                                          fontSize: "11px",
+                                          bgcolor: (t) => (t.palette.mode === "dark" ? "rgba(168,199,250,0.14)" : "#e8f0fe"),
+                                          color: "primary.main",
+                                        }}
+                                      >
+                                        {it.text}
+                                      </Box>
                                     );
                                   }
                                   if (it.kind === "image") {
                                     return (
-                                      <Chip
+                                      <Box
                                         key={k}
-                                        size="small"
-                                        color="info"
-                                        icon={<ImageRounded sx={{ fontSize: 14 }} />}
-                                        label={`${it.text} × ${it.count} 视觉 Tokens`}
-                                        sx={{ mx: 0.4, my: 0.25, height: 22, fontFamily: "monospace", fontSize: "11.5px", fontWeight: 700 }}
-                                      />
+                                        component="span"
+                                        sx={{
+                                          display: "inline-block",
+                                          px: 0.9,
+                                          py: "1px",
+                                          mx: 0.35,
+                                          my: "1px",
+                                          borderRadius: "4px",
+                                          fontSize: "11px",
+                                          fontWeight: 600,
+                                          bgcolor: (t) => (t.palette.mode === "dark" ? "rgba(129,201,149,0.16)" : "#e6f4ea"),
+                                          color: (t) => (t.palette.mode === "dark" ? "#81c995" : "#146c2e"),
+                                        }}
+                                      >
+                                        {it.text} × {it.count}
+                                      </Box>
                                     );
                                   }
                                   return <span key={k}>{it.text}</span>;
@@ -1618,81 +2087,235 @@ export default function App() {
                             </Box>
                           ));
                         })()}
-                      </Paper>
 
-                      {/* Token Table Accordion */}
-                      <Accordion variant="outlined" sx={{ borderRadius: "10px !important", "&:before": { display: "none" } }}>
-                        <AccordionSummary expandIcon={<ExpandMoreRounded />}>
-                          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                            2. 展开逐 Token 词表映射明细（共 {promptResult.tokens?.length || 0} 个 Token）
-                          </Typography>
-                        </AccordionSummary>
-                        <AccordionDetails sx={{ pt: 0 }}>
-                          <TableContainer sx={{ maxHeight: 420 }}>
-                            <Table size="small" stickyHeader>
-                              <TableHead>
-                                <TableRow>
-                                  <TableCell>#</TableCell>
-                                  <TableCell>Token ID</TableCell>
-                                  <TableCell>Token Piece</TableCell>
-                                  <TableCell>所属段落</TableCell>
-                                </TableRow>
-                              </TableHead>
-                              <TableBody>
-                                {(showAllTokens ? promptResult.tokens : (promptResult.tokens || []).slice(0, 250)).map((tok) => (
-                                  <TableRow key={tok.i} hover>
-                                    <TableCell sx={{ fontFamily: "monospace", color: "text.secondary" }}>{tok.i}</TableCell>
-                                    <TableCell sx={{ fontFamily: "monospace" }}>{tok.id}</TableCell>
-                                    <TableCell sx={{ fontFamily: "monospace", fontWeight: 600 }}>{tok.piece}</TableCell>
-                                    <TableCell sx={{ color: "text.secondary" }}>{tok.segment}</TableCell>
+                        <Box sx={{ borderTop: 1, borderColor: "divider", pt: 1.5 }}>
+                          <Button
+                            size="small"
+                            variant="text"
+                            startIcon={tokenTableOpen ? <KeyboardArrowDownRounded /> : <KeyboardArrowRightRounded />}
+                            onClick={() => setTokenTableOpen((v) => !v)}
+                            sx={{ px: 1, color: "text.secondary", fontSize: "0.76rem" }}
+                          >
+                            词表 Token 映射明细（{promptResult.tokens?.length || 0}）
+                          </Button>
+                          <Collapse in={tokenTableOpen}>
+                            <TableContainer sx={{ maxHeight: 360, mt: 1 }}>
+                              <Table size="small" stickyHeader>
+                                <TableHead>
+                                  <TableRow>
+                                    <TableCell>#</TableCell>
+                                    <TableCell>Token ID</TableCell>
+                                    <TableCell>Piece</TableCell>
+                                    <TableCell>段落</TableCell>
                                   </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
-                          </TableContainer>
-                          {(promptResult.tokens?.length || 0) > 250 && !showAllTokens && (
-                            <Box sx={{ textAlign: "center", pt: 1.5 }}>
-                              <Button size="small" variant="outlined" onClick={() => setShowAllTokens(true)}>
-                                展开剩余 {promptResult.tokens.length - 250} 个 Token
-                              </Button>
-                            </Box>
-                          )}
-                        </AccordionDetails>
-                      </Accordion>
-                    </>
-                  )}
-                </>
-              )}
+                                </TableHead>
+                                <TableBody>
+                                  {(showAllTokens ? promptResult.tokens : (promptResult.tokens || []).slice(0, 200)).map(
+                                    (tok) => (
+                                      <TableRow key={tok.i} hover>
+                                        <TableCell sx={{ fontFamily: "monospace", color: "text.secondary" }}>{tok.i}</TableCell>
+                                        <TableCell sx={{ fontFamily: "monospace" }}>{tok.id}</TableCell>
+                                        <TableCell sx={{ fontFamily: "monospace" }}>{tok.piece}</TableCell>
+                                        <TableCell sx={{ color: "text.secondary" }}>{tok.segment}</TableCell>
+                                      </TableRow>
+                                    )
+                                  )}
+                                </TableBody>
+                              </Table>
+                            </TableContainer>
+                            {(promptResult.tokens?.length || 0) > 200 && !showAllTokens && (
+                              <Box sx={{ pt: 1 }}>
+                                <Button size="small" variant="text" onClick={() => setShowAllTokens(true)}>
+                                  显示其余 {promptResult.tokens.length - 200} 项
+                                </Button>
+                              </Box>
+                            )}
+                          </Collapse>
+                        </Box>
+                      </>
+                    )}
+                  </>
+                )}
+              </Box>
             </Box>
           </Box>
+
+          {/* Right Google AI Studio `Run settings` Rail */}
+          {settingsOpen && (
+            <Box
+              component="aside"
+              sx={{
+                width: 252,
+                flexShrink: 0,
+                display: { xs: "none", md: "flex" },
+                flexDirection: "column",
+                gap: 2.25,
+                px: 1,
+                py: 0.75,
+                overflow: "auto",
+              }}
+            >
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <Typography sx={{ fontSize: "0.825rem", fontWeight: 600 }}>运行配置</Typography>
+                <IconButton size="small" onClick={() => setSettingsOpen(false)} sx={{ width: 26, height: 26 }}>
+                  <CloseRounded sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Box>
+
+              {/* Model Selector */}
+              <Box>
+                <Typography sx={{ fontSize: "0.74rem", fontWeight: 500, color: "text.secondary", mb: 0.75 }}>
+                  模型选择
+                </Typography>
+                <Select
+                  fullWidth
+                  size="small"
+                  value={selectedModel}
+                  renderValue={(val) => MODEL_META[val]?.name || val}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setSelectedModel(next);
+                    runSingleModel(next);
+                  }}
+                  sx={{
+                    borderRadius: "10px",
+                    bgcolor: "background.paper",
+                    fontSize: "0.8125rem",
+                    fontWeight: 500,
+                    "& .MuiOutlinedInput-notchedOutline": { borderColor: "divider" },
+                  }}
+                >
+                  {groupedCatalog.map(([groupName, items]) => [
+                    <ListSubheader
+                      key={`g-${groupName}`}
+                      sx={{
+                        lineHeight: "28px",
+                        fontSize: "0.7rem",
+                        fontWeight: 600,
+                        color: "text.secondary",
+                        bgcolor: "background.paper",
+                      }}
+                    >
+                      {groupName}
+                    </ListSubheader>,
+                    ...items.map((m) => (
+                      <MenuItem key={m.id} value={m.id} sx={{ py: 0.85 }}>
+                        <Box>
+                          <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500 }}>{m.name}</Typography>
+                          <Typography sx={{ fontSize: "0.7rem", color: "text.secondary" }}>
+                            {m.spec} · {m.metric}
+                          </Typography>
+                        </Box>
+                      </MenuItem>
+                    )),
+                  ])}
+                </Select>
+
+                {/* Quiet Model Spec Readout */}
+                <Box
+                  sx={{
+                    mt: 1,
+                    p: 1.25,
+                    borderRadius: "10px",
+                    bgcolor: (t) => (t.palette.mode === "dark" ? "#1e1f20" : "#eef2f7"),
+                  }}
+                >
+                  <Typography sx={{ fontSize: "0.73rem", color: "text.primary", fontWeight: 500 }}>
+                    {currentModelMeta.spec}
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.71rem", color: "text.secondary", mt: 0.25 }}>
+                    {currentModelMeta.metric}
+                  </Typography>
+                </Box>
+              </Box>
+
+              <Divider />
+
+              {/* Inference Switches */}
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1.75 }}>
+                <Typography sx={{ fontSize: "0.74rem", fontWeight: 500, color: "text.secondary" }}>
+                  校准与测试时增强
+                </Typography>
+
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
+                  <Box>
+                    <Typography sx={{ fontSize: "0.8rem", fontWeight: 500 }}>温度校准 (Locked T*)</Typography>
+                    <Typography sx={{ fontSize: "0.7rem", color: "text.secondary" }}>
+                      验证集锁定温度，抑制过自信
+                    </Typography>
+                  </Box>
+                  <M3Switch checked={calibrated} onChange={(e) => setCalibrated(e.target.checked)} />
+                </Box>
+
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
+                  <Box>
+                    <Typography sx={{ fontSize: "0.8rem", fontWeight: 500 }}>循环移位集成 (TTA-5)</Typography>
+                    <Typography sx={{ fontSize: "0.7rem", color: "text.secondary" }}>
+                      5 视角融合消除选项位置偏置
+                    </Typography>
+                  </Box>
+                  <M3Switch checked={tta5} onChange={(e) => setTta5(e.target.checked)} />
+                </Box>
+              </Box>
+
+              <Divider />
+
+              {/* Image Field Position */}
+              <Box>
+                <Typography sx={{ fontSize: "0.74rem", fontWeight: 500, color: "text.secondary", mb: 0.85 }}>
+                  图像字段位置
+                </Typography>
+                <SegmentedControl
+                  fullWidth
+                  value={imgPos}
+                  onChange={setImgPos}
+                  options={[
+                    { value: "start", label: "开头" },
+                    { value: "middle", label: "中间" },
+                    { value: "end", label: "结尾" },
+                  ]}
+                />
+              </Box>
+
+              <Divider />
+
+              {/* Quiet Usage Note */}
+              <Box>
+                <Typography sx={{ fontSize: "0.74rem", fontWeight: 500, color: "text.secondary", mb: 0.6 }}>
+                  实验建议
+                </Typography>
+                <Typography sx={{ fontSize: "0.73rem", color: "text.secondary", lineHeight: 1.6 }}>
+                  将输入切换至「纯图像」并运行「全模型对比」，可直观观察纯文本模型退化与多模态 SOTA 直接识别海报像素的差异。
+                </Typography>
+              </Box>
+            </Box>
+          )}
         </Box>
 
-        {/* Image Lightbox Dialog */}
+        {/* Clean Lightbox Modal */}
         <Dialog open={lightboxOpen} onClose={() => setLightboxOpen(false)} maxWidth="lg">
-          <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", py: 1.25 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-              广告素材高清预览 {currentSample ? `(${currentSample.id} · 真实标签：${currentSample.gold})` : ""}
-            </Typography>
-            <IconButton size="small" onClick={() => setLightboxOpen(false)}>
-              <CloseRounded />
+          <DialogContent sx={{ position: "relative", bgcolor: "#131314", p: 2.5, textAlign: "center" }}>
+            <IconButton
+              size="small"
+              onClick={() => setLightboxOpen(false)}
+              sx={{ position: "absolute", top: 10, right: 10, color: "#e3e3e3", bgcolor: "rgba(255,255,255,0.1)" }}
+            >
+              <CloseRounded fontSize="small" />
             </IconButton>
-          </DialogTitle>
-          <DialogContent dividers sx={{ textAlign: "center", bgcolor: "#0b0f19", p: 2 }}>
             {imageUri && (
               <Box
                 component="img"
                 src={imageUri}
-                alt="广告大图"
-                sx={{ maxWidth: "86vw", maxHeight: "80vh", objectFit: "contain", borderRadius: 1 }}
+                alt="广告原图"
+                sx={{ maxWidth: "86vw", maxHeight: "82vh", objectFit: "contain", borderRadius: "8px" }}
               />
             )}
           </DialogContent>
         </Dialog>
 
-        {/* Toast Notification */}
         <Snackbar
           open={Boolean(toast)}
-          autoHideDuration={3200}
+          autoHideDuration={2600}
           onClose={() => setToast("")}
           message={toast}
           anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
