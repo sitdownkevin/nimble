@@ -1,4 +1,26 @@
-playground_web/ui/node_modules/
-playground_web/server.log
+.venv/
+.venv-qwen/
+.venv-mlx/
 __pycache__/
-*.pyc
+.cache/
+.venv-curator/
+.env
+.env.*
+.DS_Store
+.modal.toml
+.modal.tomlf
+*.py[cod]
+
+# Generated releases, API response caches, and evaluation artifacts stay local.
+/data/*
+!/data/train.jsonl
+!/data/eval.jsonl
+!/data/manifest.json
+/evaluations/
+/ignore/
+
+# Playground & local caches
+.cache/
+playground_web/ui/node_modules/
+playground_web/ui/dist/
+playground_web/server.log
