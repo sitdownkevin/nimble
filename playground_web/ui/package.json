@@ -1,0 +1,19 @@
+{
+  "name": "nimble-playground-mui",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "ESB=$(find node_modules -path '*/@esbuild/*/bin/esbuild' | head -n 1) && \"$ESB\" src/main.jsx --bundle --minify --outfile=../static/app.js --loader:.jsx=jsx --define:process.env.NODE_ENV='\"production\"'"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^5.18.0",
+    "@mui/material": "^5.18.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}

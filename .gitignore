@@ -1,20 +1,4 @@
-.venv/
-.venv-qwen/
-.venv-mlx/
+playground_web/ui/node_modules/
+playground_web/server.log
 __pycache__/
-.cache/
-.venv-curator/
-.env
-.env.*
-.DS_Store
-.modal.toml
-.modal.tomlf
-*.py[cod]
-
-# Generated releases, API response caches, and evaluation artifacts stay local.
-/data/*
-!/data/train.jsonl
-!/data/eval.jsonl
-!/data/manifest.json
-/evaluations/
-/ignore/
+*.pyc
