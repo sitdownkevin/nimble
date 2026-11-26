@@ -79,10 +79,10 @@ class CandidateCollator:
         return batch
 
 
-def _unwrap_backbone_and_head(model):
+def _unwrap_backbone_and_head(model, has_multimodal=False):
     base = model.get_base_model() if hasattr(model, "get_base_model") else model
     inner = getattr(base, "model", base)
-    backbone = getattr(inner, "language_model", inner)
+    backbone = inner if has_multimodal else getattr(inner, "language_model", inner)
     head = base.get_output_embeddings()
     if head is None:
         raise RuntimeError("Model has no output embeddings for candidate projection")
@@ -91,10 +91,12 @@ def _unwrap_backbone_and_head(model):
 
 def candidate_logits(model, inputs, fp32_candidate_head=False):
     hybrid_head = getattr(model, "hybrid_head", None)
+    mm_kwargs = {k: inputs[k] for k in ("pixel_values", "image_grid_thw", "mm_token_type_ids") if k in inputs}
+    has_mm = bool(mm_kwargs)
     if fp32_candidate_head or hybrid_head is not None:
-        backbone, head_weight = _unwrap_backbone_and_head(model)
+        backbone, head_weight = _unwrap_backbone_and_head(model, has_multimodal=has_mm)
         hidden_seq = backbone(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"],
-                              use_cache=False).last_hidden_state
+                              use_cache=False, **mm_kwargs).last_hidden_state
         hidden = hidden_seq[:, -1, :]
         cand_rows = head_weight[inputs["candidate_ids"]]
         selected = (hidden.float().unsqueeze(1) * cand_rows.float()).sum(dim=-1)
@@ -103,7 +105,7 @@ def candidate_logits(model, inputs, fp32_candidate_head=False):
             return hybrid_head(hidden_seq, letter_logits, inputs["option_spans"], inputs["candidate_mask"])
         return letter_logits
     logits = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"],
-                   use_cache=False, logits_to_keep=1).logits[:, -1, :].float()
+                   use_cache=False, logits_to_keep=1, **mm_kwargs).logits[:, -1, :].float()
     selected = logits.gather(1, inputs["candidate_ids"])
     return selected.masked_fill(~inputs["candidate_mask"], -torch.inf)
 
@@ -111,7 +113,7 @@ def candidate_logits(model, inputs, fp32_candidate_head=False):
 class CandidateTrainer(Trainer):
     def __init__(self, *args, fp32_candidate_head=False, pair_batch_sampling=False,
                  pair_sampling_mode="length_bucket", flip_loss_weight=0.0, flip_margin=2.0,
-                 flip_multiclass_only=False, head_lr=None, **kwargs):
+                 flip_multiclass_only=False, head_lr=None, vision_lr=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.model_accepts_loss_kwargs = False
         self.fp32_candidate_head = fp32_candidate_head
@@ -121,26 +123,31 @@ class CandidateTrainer(Trainer):
         self.flip_margin = flip_margin
         self.flip_multiclass_only = flip_multiclass_only
         self.head_lr = head_lr
+        self.vision_lr = vision_lr
         self._last_ce_loss = None
         self._last_flip_loss = None
 
     def create_optimizer(self):
         if self.optimizer is not None:
             return self.optimizer
-        if self.head_lr is not None and getattr(self.model, "hybrid_head", None) is not None:
-            head_params, other_params = [], []
+        has_hybrid_lr = self.head_lr is not None and getattr(self.model, "hybrid_head", None) is not None
+        has_vision_lr = self.vision_lr is not None
+        if has_hybrid_lr or has_vision_lr:
+            decay_names = set(self.get_decay_parameter_names(self.model))
+            buckets = {}
             for name, param in self.model.named_parameters():
                 if not param.requires_grad:
                     continue
-                if "hybrid_head" in name:
-                    head_params.append(param)
+                if has_hybrid_lr and "hybrid_head" in name:
+                    lr = float(self.head_lr)
+                elif has_vision_lr and ".visual." in name:
+                    lr = float(self.vision_lr)
                 else:
-                    other_params.append(param)
-            if head_params:
-                groups = [
-                    {"params": other_params, "lr": self.args.learning_rate, "weight_decay": self.args.weight_decay},
-                    {"params": head_params, "lr": float(self.head_lr), "weight_decay": self.args.weight_decay},
-                ]
+                    lr = float(self.args.learning_rate)
+                wd = float(self.args.weight_decay) if name in decay_names else 0.0
+                buckets.setdefault((lr, wd), []).append(param)
+            if buckets:
+                groups = [{"params": ps, "lr": lr, "weight_decay": wd} for (lr, wd), ps in buckets.items()]
                 self.optimizer = torch.optim.AdamW(groups, betas=(0.9, 0.999), eps=1e-8)
                 return self.optimizer
         return super().create_optimizer()

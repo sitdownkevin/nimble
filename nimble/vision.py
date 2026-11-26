@@ -67,7 +67,7 @@ def patchify(images):
     return p.reshape(-1, p.shape[-1])
 
 
-@functools.lru_cache(maxsize=64)
+@functools.lru_cache(maxsize=2048)
 def image_inputs(source):
     """-> (pixel_values [N, 1536] float32, image_grid_thw (1, h, w)) for an image source. The grid is in patches; the image
     costs h * w / merge^2 tokens (at most IMAGE_TOKENS). Cached per source: training re-encodes every record each epoch."""
