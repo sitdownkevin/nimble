@@ -910,8 +910,8 @@ def main():
     fit.add_argument('--dynamic-choice-shuffle', action='store_true', help='Pair-synchronized per-epoch shuffling for choice rows')
     fit.add_argument('--fp32-candidate-head', action='store_true', help='Project only candidate rows in exact FP32 (matching CudaCandidateScorer)')
     fit.add_argument('--drop-vision', action='store_true', help='Delete unused vision encoder before LoRA wrapping')
-    fit.add_argument('--prompt-format', default='v1', choices=['v1', 'sandwich_v2', 'sandwich_v3', 'sandwich_v3_rawjson'],
-                     help='Prompt layout: v1, sandwich_v2, or sandwich_v3 (Instructions -> Clean Context -> Full Choices)')
+    fit.add_argument('--prompt-format', default='v1', choices=['v1', 'sandwich_v2', 'sandwich_v3', 'sandwich_v3_rawjson', 'context_first_clean', 'schema_first_clean'],
+                     help='Prompt layout: v1, sandwich_v2, sandwich_v3, context_first_clean, or schema_first_clean')
     fit.add_argument('--dual-view-prompts', action='store_true',
                      help='Train single adapter alternating pairs between v1 and prompt-format across epochs')
     fit.add_argument('--hybrid-head', action='store_true',
@@ -923,7 +923,7 @@ def main():
     fit.add_argument('--eval-cyclic-tta', action='store_true',
                      help='Run cyclic choice-shift test-time augmentation on choice validation rows')
     fit.add_argument('--pair-batch-sampling', action='store_true', help='Co-batch contrastive pairs')
-    fit.add_argument('--pair-sampling-mode', default='length_bucket', choices=['length_bucket', 'stratified'],
+    fit.add_argument('--pair-sampling-mode', default='length_bucket', choices=['length_bucket', 'stratified', 'random'],
                      help='PairBatchSampler ordering: length_bucket or kind-stratified')
     fit.add_argument('--flip-loss-weight', type=float, default=0.0, help='Weight for bidirectional pairwise log-odds flip loss')
     fit.add_argument('--flip-margin', type=float, default=2.0, help='Target average per-sibling log-odds margin for flip loss')

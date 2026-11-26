@@ -25,7 +25,7 @@ class PairBatchSampler:
     def __init__(self, dataset, batch_size, seed=17, bucket_pairs=32, sampling_mode="length_bucket"):
         if batch_size < 2 or batch_size % 2 != 0:
             raise ValueError(f"PairBatchSampler requires an even batch_size >= 2, got {batch_size}")
-        if sampling_mode not in ("length_bucket", "stratified"):
+        if sampling_mode not in ("length_bucket", "stratified", "random"):
             raise ValueError(f"Unsupported sampling_mode: {sampling_mode}")
         self.dataset = dataset
         self.batch_size = batch_size
@@ -99,7 +99,8 @@ class PairBatchSampler:
             rng.shuffle(pairs)
             for start in range(0, len(pairs), self.bucket_pairs):
                 bucket = pairs[start:start + self.bucket_pairs]
-                bucket.sort(key=self._pair_length)
+                if self.sampling_mode == "length_bucket":
+                    bucket.sort(key=self._pair_length)
                 for b_start in range(0, len(bucket), self.pairs_per_batch):
                     chunk = bucket[b_start:b_start + self.pairs_per_batch]
                     flat = []

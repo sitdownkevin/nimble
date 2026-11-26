@@ -159,6 +159,62 @@ def render_sandwich_v2_content(context, fields, marker):
     )
 
 
+def render_context_first_clean_content(context, fields, marker):
+    """Clean Markdown control [-Task Prior, +Near Choices]: Clean Context -> Task/Policy -> Full Choices."""
+    parts = ["## Context\n", render_clean_context(context), "\n\n## Task & Policy\n"]
+    for field in fields:
+        parts.append(f"Field: {_sanitize_control_tokens(str(field['name']))}\n")
+        parts.append(f"Instructions: {_sanitize_control_tokens(str(field['description']))}\n")
+    parts.append("\n## Choices\n")
+    cursor = sum(len(s) for s in parts)
+    choice_char_spans = []
+    for field in fields:
+        hdr = f"Field: {_sanitize_control_tokens(str(field['name']))}\n"
+        parts.append(hdr)
+        cursor += len(hdr)
+        field_spans = []
+        for ch in field["choices"]:
+            code = ch["code"]
+            val = _sanitize_control_tokens(_format_choice_value(ch["value"]))
+            desc = ch.get("description")
+            line = f"- {code} ({val}): {_sanitize_control_tokens(str(desc))}" if desc else f"- {code}: {val}"
+            field_spans.append((cursor, cursor + len(line)))
+            parts.append(line + "\n")
+            cursor += len(line) + 1
+        choice_char_spans.append(field_spans)
+    parts.append("\nRequested field: " + marker)
+    return "".join(parts), choice_char_spans
+
+
+def render_schema_first_clean_content(context, fields, marker):
+    """Clean Markdown control [+Task Prior, -Near Choices]: Task/Policy -> Full Choices -> Clean Context."""
+    parts = ["## Task & Policy\n"]
+    for field in fields:
+        parts.append(f"Field: {_sanitize_control_tokens(str(field['name']))}\n")
+        parts.append(f"Instructions: {_sanitize_control_tokens(str(field['description']))}\n")
+    parts.append("\n## Choices\n")
+    cursor = sum(len(s) for s in parts)
+    choice_char_spans = []
+    for field in fields:
+        hdr = f"Field: {_sanitize_control_tokens(str(field['name']))}\n"
+        parts.append(hdr)
+        cursor += len(hdr)
+        field_spans = []
+        for ch in field["choices"]:
+            code = ch["code"]
+            val = _sanitize_control_tokens(_format_choice_value(ch["value"]))
+            desc = ch.get("description")
+            line = f"- {code} ({val}): {_sanitize_control_tokens(str(desc))}" if desc else f"- {code}: {val}"
+            field_spans.append((cursor, cursor + len(line)))
+            parts.append(line + "\n")
+            cursor += len(line) + 1
+        choice_char_spans.append(field_spans)
+    parts.append("\n## Context\n")
+    parts.append(render_clean_context(context))
+    parts.append("\n\nRequested field: " + marker)
+    return "".join(parts), choice_char_spans
+
+
 def render_sandwich_v3_content(context, fields, marker, raw_json_context=False):
     """Zero-duplication split-sandwich prompt: Task/Policy -> Clean Context -> Full Choices & Criteria.
 
@@ -243,7 +299,7 @@ def prepare_prompts(tokenizer, context, schema, max_input_tokens, system_role=Tr
     validate_schema(schema)
     if not isinstance(context, str) or not context.strip():
         raise ValueError("Context must be a nonempty string.")
-    if prompt_format not in ("v1", "sandwich_v2", "sandwich_v3", "sandwich_v3_rawjson"):
+    if prompt_format not in ("v1", "sandwich_v2", "sandwich_v3", "sandwich_v3_rawjson", "context_first_clean", "schema_first_clean"):
         raise ValueError(f"Unsupported prompt_format: {prompt_format}")
     names = list(schema)
     choices = [choices_for(schema[name]) for name in names]
@@ -262,6 +318,10 @@ def prepare_prompts(tokenizer, context, schema, max_input_tokens, system_role=Tr
     choice_char_spans = None
     if prompt_format in ("sandwich_v3", "sandwich_v3_rawjson"):
         content, choice_char_spans = render_sandwich_v3_content(context, fields, marker, raw_json_context=(prompt_format == "sandwich_v3_rawjson"))
+    elif prompt_format == "context_first_clean":
+        content, choice_char_spans = render_context_first_clean_content(context, fields, marker)
+    elif prompt_format == "schema_first_clean":
+        content, choice_char_spans = render_schema_first_clean_content(context, fields, marker)
     elif prompt_format == "sandwich_v2":
         content = render_sandwich_v2_content(context, fields, marker)
     else:

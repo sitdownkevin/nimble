@@ -35,7 +35,7 @@ SUBSETS = [
 
 class PeftPublicScorer:
     def __init__(self, model_id, revision, adapter_dir=None, prompt_format="v1",
-                 max_input_tokens=4096, drop_vision=False):
+                 max_input_tokens=4096, drop_vision=False, bf16_full_lm_head=False):
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA GPU required")
         torch.backends.cuda.matmul.allow_tf32 = False
@@ -43,6 +43,7 @@ class PeftPublicScorer:
         self.revision = revision
         self.prompt_format = prompt_format
         self.max_input_tokens = max_input_tokens
+        self.bf16_full_lm_head = bf16_full_lm_head
         self.temperature = 1.0
 
         t0 = time.perf_counter()
@@ -97,8 +98,14 @@ class PeftPublicScorer:
             prepared.names, prepared.choices, prepared.full_ids, prepared.candidate_ids
         ):
             tokens = torch.tensor([ids], device=self.device)
-            hidden = self.backbone(input_ids=tokens, use_cache=False).last_hidden_state[:, -1, :]
-            logits = candidate_projection(hidden, self.head_weight, candidates)[0]
+            if self.bf16_full_lm_head:
+                logits_vocab = self.model(input_ids=tokens, use_cache=False, logits_to_keep=1).logits[:, -1, :].float()
+                cand_idx = torch.tensor(candidates, device=logits_vocab.device, dtype=torch.long)
+                logits = logits_vocab[0].index_select(0, cand_idx)
+                hidden = logits_vocab
+            else:
+                hidden = self.backbone(input_ids=tokens, use_cache=False).last_hidden_state[:, -1, :]
+                logits = candidate_projection(hidden, self.head_weight, candidates)[0]
             if not torch.isfinite(logits).all():
                 raise ValueError("Non-finite candidate logits")
             probabilities = torch.softmax(logits, dim=-1)
@@ -129,7 +136,7 @@ class PeftPublicScorer:
                 "mode": mode,
                 "fields": len(fields),
                 "total_seconds": time.perf_counter() - started,
-                "full_vocabulary_projection": False,
+                "full_vocabulary_projection": self.bf16_full_lm_head,
             },
         }
 
@@ -139,8 +146,9 @@ def main():
     ap.add_argument("--model", required=True)
     ap.add_argument("--revision", required=True)
     ap.add_argument("--adapter", default=None)
-    ap.add_argument("--prompt-format", default="v1", choices=["v1", "sandwich_v3", "sandwich_v3_rawjson"])
+    ap.add_argument("--prompt-format", default="v1", choices=["v1", "sandwich_v2", "sandwich_v3", "sandwich_v3_rawjson", "context_first_clean", "schema_first_clean"])
     ap.add_argument("--drop-vision", action="store_true")
+    ap.add_argument("--bf16-full-lm-head", action="store_true")
     ap.add_argument("--run-name", required=True)
     ap.add_argument("--data-root", type=Path, default=Path("/root/projects/nimble/data/public"))
     ap.add_argument("--out-root", type=Path, default=Path("/root/projects/nimble_p7_4b/eval_public"))
@@ -154,6 +162,7 @@ def main():
         prompt_format=args.prompt_format,
         max_input_tokens=args.max_input_tokens,
         drop_vision=args.drop_vision,
+        bf16_full_lm_head=args.bf16_full_lm_head,
     )
 
     suite_t0 = time.perf_counter()
