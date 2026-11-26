@@ -34,8 +34,9 @@ MAX_CHOICES = 26
 
 
 class CandidateCollator:
-    def __init__(self, pad_id):
+    def __init__(self, pad_id, flip_exclude_score=False):
         self.pad_id = pad_id
+        self.flip_exclude_score = flip_exclude_score
 
     def __call__(self, rows):
         length = max(len(r["input_ids"]) for r in rows)
@@ -66,7 +67,7 @@ class CandidateCollator:
             gids = []
             for r in rows:
                 pid = r.get("pair_id")
-                if not pid or r.get("is_aux", False):
+                if not pid or r.get("is_aux", False) or (self.flip_exclude_score and r.get("kind") == "score"):
                     gids.append(-1)
                 else:
                     if pid not in pid_map:
@@ -625,6 +626,8 @@ def train(args):
         torch.cuda.empty_cache()
     targets = [name for name, layer in base.named_modules() if isinstance(layer, torch.nn.Linear) and ".language_model." in name]
     if not targets:
+        targets = [name for name, layer in base.named_modules() if isinstance(layer, torch.nn.Linear) and name.startswith("model.layers.")]
+    if not targets:
         raise RuntimeError("No language linear layers matched")
     model = get_peft_model(base, LoraConfig(r=args.lora_rank, lora_alpha=2 * args.lora_rank,
                                           lora_dropout=.05, target_modules=targets, bias="none", task_type="CAUSAL_LM"))
@@ -647,7 +650,7 @@ def train(args):
     contract.update(versions={p: version(p) for p in ("torch", "transformers", "peft", "accelerate")},
                     gpu=torch.cuda.get_device_name(), target_modules=targets)
     (args.output_dir / "schema_config.json").write_text(json.dumps(contract, indent=2) + "\n")
-    collator = CandidateCollator(tokenizer.pad_token_id)
+    collator = CandidateCollator(tokenizer.pad_token_id, flip_exclude_score=getattr(args, "flip_exclude_score", False))
     swanlab_mod = None
     if args.swanlab_project:
         import swanlab as swanlab_mod
@@ -907,7 +910,7 @@ def main():
     fit.add_argument('--dynamic-choice-shuffle', action='store_true', help='Pair-synchronized per-epoch shuffling for choice rows')
     fit.add_argument('--fp32-candidate-head', action='store_true', help='Project only candidate rows in exact FP32 (matching CudaCandidateScorer)')
     fit.add_argument('--drop-vision', action='store_true', help='Delete unused vision encoder before LoRA wrapping')
-    fit.add_argument('--prompt-format', default='v1', choices=['v1', 'sandwich_v2', 'sandwich_v3'],
+    fit.add_argument('--prompt-format', default='v1', choices=['v1', 'sandwich_v2', 'sandwich_v3', 'sandwich_v3_rawjson'],
                      help='Prompt layout: v1, sandwich_v2, or sandwich_v3 (Instructions -> Clean Context -> Full Choices)')
     fit.add_argument('--dual-view-prompts', action='store_true',
                      help='Train single adapter alternating pairs between v1 and prompt-format across epochs')
@@ -925,6 +928,7 @@ def main():
     fit.add_argument('--flip-loss-weight', type=float, default=0.0, help='Weight for bidirectional pairwise log-odds flip loss')
     fit.add_argument('--flip-margin', type=float, default=2.0, help='Target average per-sibling log-odds margin for flip loss')
     fit.add_argument('--flip-multiclass-only', action='store_true', help='Apply flip loss only to K>=3 (choice/score) pairs')
+    fit.add_argument('--flip-exclude-score', action='store_true', help='Apply flip loss only to categorical (choice/noul) pairs, excluding ordinal score')
     fit.add_argument('--unlock-deltanet', action='store_true', help='Unfreeze Gated DeltaNet A_log/dt_bias/conv1d and RMSNorm parameters')
     fit.add_argument('--ema-decay', type=float, default=0.0, help='FP32 EMA decay over trainable params (0 disables EMA)')
     fit.add_argument('--swanlab-project', help='SwanLab project name for real-time logging')

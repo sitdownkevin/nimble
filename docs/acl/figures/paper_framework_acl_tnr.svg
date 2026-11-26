@@ -1,0 +1,300 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675">
+  <defs>
+    <style>
+      @font-face {
+        font-family: 'TNR';
+        src: url('file:///System/Library/Fonts/Supplemental/Times%20New%20Roman.ttf') format('truetype');
+        font-weight: 400;
+        font-style: normal;
+      }
+      @font-face {
+        font-family: 'TNR';
+        src: url('file:///System/Library/Fonts/Supplemental/Times%20New%20Roman%20Bold.ttf') format('truetype');
+        font-weight: 700;
+        font-style: normal;
+      }
+      @font-face {
+        font-family: 'TNR';
+        src: url('file:///System/Library/Fonts/Supplemental/Times%20New%20Roman%20Italic.ttf') format('truetype');
+        font-weight: 400;
+        font-style: italic;
+      }
+      @font-face {
+        font-family: 'TNR';
+        src: url('file:///System/Library/Fonts/Supplemental/Times%20New%20Roman%20Bold%20Italic.ttf') format('truetype');
+        font-weight: 700;
+        font-style: italic;
+      }
+      text {
+        font-family: 'TNR', 'Times New Roman', Times, serif;
+        fill: #1A202C;
+      }
+      .title-bold { font-size: 19px; font-weight: 700; }
+      .title-reg  { font-size: 19px; font-weight: 400; }
+      .col-title  { font-size: 17.5px; font-weight: 700; }
+      .lbl        { font-size: 16px; font-weight: 400; }
+      .lbl-sm     { font-size: 14.5px; font-weight: 400; }
+      .lbl-xs     { font-size: 13.5px; font-weight: 400; }
+      .lbl-it     { font-size: 15px; font-style: italic; fill: #334155; }
+      .lbl-muted  { font-size: 15.5px; font-style: italic; fill: #526071; }
+      .math-it    { font-style: italic; }
+      .math-bi    { font-weight: 700; font-style: italic; }
+      .math-b     { font-weight: 700; }
+      .stroke-main { stroke: #475569; stroke-width: 1.15; }
+      .arrow-line  { stroke: #475569; stroke-width: 1.35; fill: none; }
+      .arrow-dash  { stroke: #526071; stroke-width: 1.35; stroke-dasharray: 5,4; fill: none; }
+      .brace       { stroke: #475569; stroke-width: 1.1; fill: none; }
+    </style>
+
+    <linearGradient id="decayFillA" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#D98A8C" stop-opacity="0.38"/>
+      <stop offset="100%" stop-color="#D98A8C" stop-opacity="0.06"/>
+    </linearGradient>
+    <linearGradient id="decayFillB" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#D98A8C" stop-opacity="0.32"/>
+      <stop offset="100%" stop-color="#D98A8C" stop-opacity="0.14"/>
+    </linearGradient>
+
+    <marker id="arr" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="#475569"/>
+    </marker>
+    <marker id="arr-rose" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="#C4787B"/>
+    </marker>
+  </defs>
+
+  <!-- Pure white background -->
+  <rect x="0" y="0" width="1200" height="675" fill="#FFFFFF"/>
+
+  <!-- ==================== PANEL (a) ==================== -->
+  <text x="26" y="34">
+    <tspan class="title-bold">(a) Official Baseline v1:</tspan>
+    <tspan class="title-reg"> Blind Context Compression &amp; Tail Decay on Hybrid Gated DeltaNet</tspan>
+  </text>
+
+  <!-- Blind reading note above Context -->
+  <text x="350" y="84" text-anchor="middle" class="lbl-muted">(no task prior → blind recurrent compression)</text>
+
+  <!-- Decay curve above JSON Schema & Choices -> Field (x=644..986) -->
+  <path d="M 644,94 L 644,53 Q 775,80 982,89 L 982,94 Z" fill="url(#decayFillA)"/>
+  <path d="M 644,53 Q 775,80 980,89" fill="none" stroke="#C4787B" stroke-width="1.8" marker-end="url(#arr-rose)"/>
+  <text x="842" y="69" text-anchor="middle" font-size="16.5">∏<tspan class="math-it">α</tspan><tspan dy="4" font-size="11.5" class="math-it">t</tspan><tspan dy="-4"> = 0.264</tspan></text>
+
+  <!-- Panel (a) Horizontal Token Tape (y=98..146) -->
+  <!-- Segment 1: JSON Context -->
+  <path d="M 64,98 L 644,98 L 644,146 L 64,146 Q 58,146 58,140 L 58,104 Q 58,98 64,98 Z" fill="#E8C98F" class="stroke-main"/>
+  <text x="351" y="128" text-anchor="middle" font-size="17.5">JSON Context: {"context": "...\"fee: 5%\"..."}</text>
+
+  <!-- Segment 2: JSON Schema & Choices -->
+  <rect x="644" y="98" width="264" height="48" fill="#E1A8AA" class="stroke-main"/>
+  <text x="776" y="128" text-anchor="middle" font-size="17.5">JSON Schema &amp; Choices</text>
+
+  <!-- Segment 3: Field -->
+  <path d="M 908,98 L 982,98 Q 988,98 988,104 L 988,140 Q 988,146 982,146 L 908,146 Z" fill="#E2E5E9" class="stroke-main"/>
+  <text x="948" y="128" text-anchor="middle" font-size="17.5">Field</text>
+
+  <!-- Readout arrow & label -->
+  <line x1="988" y1="122" x2="1044" y2="122" class="arrow-line" marker-end="url(#arr)"/>
+  <text x="1054" y="128" font-size="19">Readout <tspan class="math-bi">h</tspan><tspan dy="4" font-size="13" class="math-it">T</tspan></text>
+
+  <!-- Curly braces under Panel (a) tape -->
+  <path d="M 60,152 Q 60,161 72,161 L 339,161 Q 351,161 351,169 Q 351,161 363,161 L 630,161 Q 642,161 642,152" class="brace"/>
+  <text x="351" y="191" text-anchor="middle" font-size="16.5">Raw JSON-escaped context</text>
+
+  <path d="M 646,152 Q 646,161 658,161 L 804,161 Q 816,161 816,169 Q 816,161 828,161 L 974,161 Q 986,161 986,152" class="brace"/>
+  <text x="816" y="191" text-anchor="middle" font-size="16.5">Avg readout distance = 166 tok</text>
+
+  <!-- Horizontal Dashed Divider -->
+  <line x1="26" y1="216" x2="1174" y2="216" stroke="#94A3B8" stroke-width="1.2" stroke-dasharray="6,5"/>
+
+  <!-- ==================== PANEL (b) ==================== -->
+  <text x="26" y="248">
+    <tspan class="title-bold">(b) Proposed Method:</tspan>
+    <tspan class="title-reg"> Task-Guided Sandwich-v3, Counterfactual Co-Batching, and Zero-Leakage Calibration</tspan>
+  </text>
+
+  <!-- Column Headers -->
+  <text x="241" y="280" text-anchor="middle" class="col-title">Counterfactual Pair Inputs</text>
+  <text x="241" y="301" text-anchor="middle" font-size="16">(PairBatchSampler)</text>
+
+  <text x="676" y="290" text-anchor="middle" class="col-title">Hybrid Backbone &amp; Projection</text>
+
+  <text x="1031" y="280" text-anchor="middle" class="col-title">Dual-Branch Objective</text>
+  <text x="1031" y="301" text-anchor="middle" class="col-title">&amp; Calibration</text>
+
+  <!-- ==================== COLUMN 1: PAIR INPUTS ==================== -->
+  <rect x="24" y="316" width="434" height="292" rx="12" fill="#FBF7EE" stroke="#94A3B8" stroke-width="1.15" stroke-dasharray="5,4"/>
+
+  <!-- Retention curve above upper Choices (70 tok) (x=318..444) -->
+  <path d="M 318,376 L 318,354 Q 380,364 442,368 L 442,376 Z" fill="url(#decayFillB)"/>
+  <path d="M 318,354 Q 380,364 440,368" fill="none" stroke="#C4787B" stroke-width="1.7" marker-end="url(#arr-rose)"/>
+  <text x="372" y="346" text-anchor="middle" font-size="15.5">∏<tspan class="math-it">α</tspan><tspan dy="3" font-size="11" class="math-it">t</tspan><tspan dy="-3"> = 0.300 </tspan><tspan fill="#207A4C">(+13.7%)</tspan></text>
+
+  <!-- Upper Tape x^(a) (y=380..442) -->
+  <text x="60" y="405" text-anchor="middle" font-size="17"><tspan class="math-b">x</tspan><tspan dy="-6" font-size="12">(<tspan class="math-it">a</tspan>)</tspan></text>
+  <text x="60" y="427" text-anchor="middle" class="lbl-sm">(gold: A)</text>
+
+  <path d="M 102,380 L 178,380 L 178,442 L 102,442 Q 96,442 96,436 L 96,386 Q 96,380 102,380 Z" fill="#CFE0F5" class="stroke-main"/>
+  <text x="137" y="406" text-anchor="middle" font-size="15.5">Task</text>
+  <text x="137" y="427" text-anchor="middle" font-size="14.5">(~40 tok)</text>
+
+  <rect x="178" y="380" width="140" height="62" fill="#D5E7DE" class="stroke-main"/>
+  <text x="248" y="405" text-anchor="middle" font-size="15.5">Clean Context</text>
+  <rect x="225" y="414" width="46" height="20" rx="4" fill="#A9DCBC"/>
+  <text x="248" y="429" text-anchor="middle" font-size="14.5">(… fee 5% …)</text>
+
+  <path d="M 318,380 L 438,380 Q 444,380 444,386 L 444,436 Q 444,442 438,442 L 318,442 Z" fill="#E8C98F" class="stroke-main"/>
+  <text x="381" y="406" text-anchor="middle" font-size="15.5">Choices</text>
+  <text x="381" y="427" text-anchor="middle" font-size="14.5">(70 tok)</text>
+
+  <!-- Minimal edit double arrow -->
+  <line x1="248" y1="448" x2="248" y2="495" class="arrow-line" marker-start="url(#arr)" marker-end="url(#arr)"/>
+  <text x="259" y="476" font-size="15.5">minimal edit <tspan class="math-b">δx</tspan></text>
+
+  <!-- Lower Tape x^(b) (y=502..564) -->
+  <text x="60" y="527" text-anchor="middle" font-size="17"><tspan class="math-b">x</tspan><tspan dy="-6" font-size="12">(<tspan class="math-it">b</tspan>)</tspan></text>
+  <text x="60" y="549" text-anchor="middle" class="lbl-sm">(gold: B)</text>
+
+  <path d="M 102,502 L 178,502 L 178,564 L 102,564 Q 96,564 96,558 L 96,508 Q 96,502 102,502 Z" fill="#CFE0F5" class="stroke-main"/>
+  <text x="137" y="528" text-anchor="middle" font-size="15.5">Task</text>
+  <text x="137" y="549" text-anchor="middle" font-size="14.5">(~40 tok)</text>
+
+  <rect x="178" y="502" width="140" height="62" fill="#D5E7DE" class="stroke-main"/>
+  <text x="248" y="527" text-anchor="middle" font-size="15.5">Clean Context</text>
+  <rect x="221" y="536" width="54" height="20" rx="4" fill="#F0B1AD"/>
+  <text x="248" y="551" text-anchor="middle" font-size="14.5">(… fee 50% …)</text>
+
+  <path d="M 318,502 L 438,502 Q 444,502 444,508 L 444,558 Q 444,564 438,564 L 318,564 Z" fill="#E8C98F" class="stroke-main"/>
+  <text x="381" y="528" text-anchor="middle" font-size="15.5">Choices</text>
+  <text x="381" y="549" text-anchor="middle" font-size="14.5">(70 tok)</text>
+
+  <!-- Captions below Column 1 -->
+  <text x="241" y="633" text-anchor="middle" font-size="16">Order-Preserving &amp; Sync Choice Shuffle</text>
+  <text x="241" y="656" text-anchor="middle" font-size="15.5" fill="#334155">2.36× shorter readout distance · −7.13% tokens</text>
+
+  <!-- Arrows from Col 1 to Backbone -->
+  <line x1="444" y1="411" x2="495" y2="411" class="arrow-line" marker-end="url(#arr)"/>
+  <line x1="444" y1="533" x2="495" y2="533" class="arrow-line" marker-end="url(#arr)"/>
+
+  <!-- ==================== COLUMN 2: HYBRID BACKBONE & HEAD ==================== -->
+  <rect x="498" y="316" width="204" height="292" rx="10" fill="#EBF2FA" class="stroke-main"/>
+  <text x="600" y="340" text-anchor="middle" font-size="16" font-weight="700">Qwen3.5 Hybrid Backbone</text>
+  <text x="600" y="359" text-anchor="middle" font-size="14" font-style="italic" fill="#334155">shared weights, co-batched</text>
+
+  <!-- 3x Gated DeltaNet + 1x Full Attention -->
+  <rect x="510" y="374" width="144" height="45" rx="6" fill="#C4E1D2" class="stroke-main"/>
+  <text x="582" y="402" text-anchor="middle" font-size="15.5">Gated DeltaNet</text>
+
+  <rect x="510" y="431" width="144" height="45" rx="6" fill="#C4E1D2" class="stroke-main"/>
+  <text x="582" y="459" text-anchor="middle" font-size="15.5">Gated DeltaNet</text>
+
+  <rect x="510" y="488" width="144" height="45" rx="6" fill="#C4E1D2" class="stroke-main"/>
+  <text x="582" y="516" text-anchor="middle" font-size="15.5">Gated DeltaNet</text>
+
+  <rect x="510" y="545" width="144" height="45" rx="6" fill="#BBD5F2" class="stroke-main"/>
+  <text x="582" y="573" text-anchor="middle" font-size="15.5">Full Attention</text>
+
+  <!-- Vertical LoRA bar -->
+  <rect x="662" y="374" width="28" height="216" rx="6" fill="#6BB6A7" class="stroke-main"/>
+  <text x="681" y="482" text-anchor="middle" font-size="15" transform="rotate(-90, 681, 482)">LoRA (<tspan class="math-it">r</tspan>=16)</text>
+
+  <!-- Caption below Backbone -->
+  <text x="600" y="633" text-anchor="middle" font-size="16">3:1 hybrid layers</text>
+  <text x="600" y="656" text-anchor="middle" font-size="15.5" fill="#334155">(75% linear / 25% full)</text>
+
+  <!-- Arrows Backbone -> FP32 Candidate Head -->
+  <line x1="702" y1="438" x2="752" y2="438" class="arrow-line" marker-end="url(#arr)"/>
+  <text x="727" y="427" text-anchor="middle" font-size="15.5"><tspan class="math-bi">h</tspan><tspan dy="4" font-size="11" class="math-it">T</tspan><tspan dy="-10" dx="-5" font-size="11">(<tspan class="math-it">a</tspan>)</tspan></text>
+
+  <line x1="702" y1="486" x2="752" y2="486" class="arrow-line" marker-end="url(#arr)"/>
+  <text x="727" y="509" text-anchor="middle" font-size="15.5"><tspan class="math-bi">h</tspan><tspan dy="4" font-size="11" class="math-it">T</tspan><tspan dy="-10" dx="-5" font-size="11">(<tspan class="math-it">b</tspan>)</tspan></text>
+
+  <!-- FP32 Candidate Head -->
+  <text x="789" y="376" text-anchor="middle" font-size="16">FP32</text>
+  <text x="789" y="395" text-anchor="middle" font-size="16">Candidate</text>
+  <text x="789" y="414" text-anchor="middle" font-size="16">Head</text>
+
+  <!-- Crisp matrix bracket [ · ] -->
+  <path d="M 771,426 L 761,426 L 761,498 L 771,498" fill="none" stroke="#1E293B" stroke-width="1.8"/>
+  <path d="M 807,426 L 817,426 L 817,498 L 807,498" fill="none" stroke="#1E293B" stroke-width="1.8"/>
+  <text x="789" y="469" text-anchor="middle" font-size="22">[ · ]</text>
+
+  <text x="789" y="523" text-anchor="middle" font-size="15.5"><tspan class="math-it">W</tspan><tspan dy="3" font-size="11">lm</tspan><tspan dy="-3">[<tspan class="math-it">c</tspan></tspan><tspan dy="3" font-size="11">1</tspan><tspan dy="-3">, …, <tspan class="math-it">c</tspan></tspan><tspan dy="3" font-size="11" class="math-it">K</tspan><tspan dy="-3">]</tspan></text>
+  <text x="789" y="544" text-anchor="middle" font-size="15">(<tspan class="math-it">K</tspan> ≤ 26)</text>
+
+  <!-- Branching arrows to Training (solid) and Inference (dashed) -->
+  <path d="M 822,462 L 858,462 L 858,392 L 882,392" class="arrow-line" marker-end="url(#arr)"/>
+  <path d="M 858,462 L 858,566 L 882,566" class="arrow-dash" marker-end="url(#arr)"/>
+  <text x="843" y="449" text-anchor="middle" font-size="15.5"><tspan class="math-b">z</tspan><tspan dy="-5" font-size="11">(<tspan class="math-it">a</tspan>)</tspan><tspan dy="5">,</tspan></text>
+  <text x="843" y="486" text-anchor="middle" font-size="15.5"><tspan class="math-b">z</tspan><tspan dy="-5" font-size="11">(<tspan class="math-it">b</tspan>)</tspan></text>
+
+  <!-- ==================== COLUMN 3: TRAINING & INFERENCE ==================== -->
+  <!-- UPPER BOX: Training -->
+  <rect x="886" y="316" width="288" height="154" rx="10" fill="#E6F3EC" stroke="#529E78" stroke-width="1.15"/>
+  <text x="1162" y="336" text-anchor="end" font-size="15" font-style="italic" fill="#1F2937">Training</text>
+
+  <!-- Left mini bar chart z^(a) -->
+  <text x="945" y="355" text-anchor="middle" font-size="16.5"><tspan class="math-b">z</tspan><tspan dy="-5" font-size="11.5">(<tspan class="math-it">a</tspan>)</tspan></text>
+  <line x1="910" y1="366" x2="910" y2="418" stroke="#334155" stroke-width="1.2"/>
+  <line x1="910" y1="418" x2="980" y2="418" stroke="#334155" stroke-width="1.2"/>
+  <rect x="920" y="370" width="20" height="48" fill="#E0B167" stroke="#475569" stroke-width="0.9"/>
+  <rect x="948" y="403" width="20" height="15" fill="#7EA6DA" stroke="#475569" stroke-width="0.9"/>
+  <text x="930" y="433" text-anchor="middle" class="lbl-xs">A</text>
+  <text x="958" y="433" text-anchor="middle" class="lbl-xs">B</text>
+
+  <!-- PairFlip curved arrows -->
+  <path d="M 992,386 Q 1031,372 1068,386" fill="none" stroke="#334155" stroke-width="1.25" marker-start="url(#arr)" marker-end="url(#arr)"/>
+  <path d="M 992,406 Q 1031,420 1068,406" fill="none" stroke="#334155" stroke-width="1.25" marker-start="url(#arr)" marker-end="url(#arr)"/>
+  <text x="1030" y="372" text-anchor="middle" font-size="14.5">PairFlip</text>
+  <text x="1030" y="401" text-anchor="middle" font-size="14.5">margin</text>
+
+  <!-- Right mini bar chart z^(b) -->
+  <text x="1116" y="355" text-anchor="middle" font-size="16.5"><tspan class="math-b">z</tspan><tspan dy="-5" font-size="11.5">(<tspan class="math-it">b</tspan>)</tspan></text>
+  <line x1="1081" y1="366" x2="1081" y2="418" stroke="#334155" stroke-width="1.2"/>
+  <line x1="1081" y1="418" x2="1151" y2="418" stroke="#334155" stroke-width="1.2"/>
+  <rect x="1091" y="403" width="20" height="15" fill="#E0B167" stroke="#475569" stroke-width="0.9"/>
+  <rect x="1119" y="370" width="20" height="48" fill="#7EA6DA" stroke="#475569" stroke-width="0.9"/>
+  <text x="1101" y="433" text-anchor="middle" class="lbl-xs">A</text>
+  <text x="1129" y="433" text-anchor="middle" class="lbl-xs">B</text>
+
+  <!-- Loss formula -->
+  <text x="1030" y="457" text-anchor="middle" font-size="17.5">
+    <tspan class="math-it">L</tspan> = <tspan class="math-it">L</tspan><tspan dy="3" font-size="11.5">CE</tspan><tspan dy="-3"> + </tspan><tspan class="math-it">λ</tspan> · <tspan class="math-it">L</tspan><tspan dy="3" font-size="11.5">flip</tspan>
+  </text>
+
+  <!-- LOWER BOX: Inference -->
+  <rect x="886" y="488" width="288" height="168" rx="10" fill="#F1ECF9" stroke="#8C73C9" stroke-width="1.15"/>
+  <text x="1162" y="508" text-anchor="end" font-size="15" font-style="italic" fill="#1F2937">Inference</text>
+
+  <!-- FP32 EMA node -->
+  <rect x="898" y="537" width="58" height="58" rx="7" fill="#CFC4E8" stroke="#5E4D8C" stroke-width="1.1"/>
+  <text x="927" y="562" text-anchor="middle" font-size="14.5">FP32</text>
+  <text x="927" y="581" text-anchor="middle" font-size="14.5">EMA</text>
+
+  <line x1="956" y1="566" x2="972" y2="566" class="arrow-line" marker-end="url(#arr)"/>
+
+  <!-- Temp Scaling node -->
+  <rect x="975" y="528" width="74" height="76" rx="7" fill="#CFC4E8" stroke="#5E4D8C" stroke-width="1.1"/>
+  <text x="1012" y="551" text-anchor="middle" font-size="14.5">Temp</text>
+  <text x="1012" y="570" text-anchor="middle" font-size="14.5">Scaling</text>
+  <text x="1012" y="590" text-anchor="middle" font-size="14.5">(÷ <tspan class="math-it">τ</tspan>)</text>
+
+  <line x1="1049" y1="566" x2="1065" y2="566" class="arrow-line" marker-end="url(#arr)"/>
+
+  <!-- Calibrated 4-bar probability plot -->
+  <line x1="1070" y1="532" x2="1070" y2="597" stroke="#334155" stroke-width="1.2"/>
+  <line x1="1070" y1="597" x2="1164" y2="597" stroke="#334155" stroke-width="1.2"/>
+  <rect x="1076" y="573" width="16" height="24" fill="#E3C492" stroke="#475569" stroke-width="0.9"/>
+  <rect x="1097" y="538" width="16" height="59" fill="#DFA3A5" stroke="#475569" stroke-width="0.9"/>
+  <rect x="1118" y="582" width="16" height="15" fill="#9BB9DE" stroke="#475569" stroke-width="0.9"/>
+  <rect x="1139" y="590" width="16" height="7" fill="#C7C1DE" stroke="#475569" stroke-width="0.9"/>
+  <text x="1084" y="611" text-anchor="middle" class="lbl-xs">A</text>
+  <text x="1105" y="611" text-anchor="middle" class="lbl-xs">B</text>
+  <text x="1126" y="611" text-anchor="middle" class="lbl-xs">C</text>
+  <text x="1147" y="611" text-anchor="middle" class="lbl-xs">D</text>
+
+  <!-- Calibrated output caption -->
+  <text x="1030" y="641" text-anchor="middle" font-size="16.5">
+    Calibrated <tspan class="math-it">P</tspan>(<tspan class="math-b">y</tspan> | <tspan class="math-b">x</tspan>, <tspan class="math-it">S</tspan>)
+  </text>
+</svg>

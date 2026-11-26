@@ -159,7 +159,7 @@ def render_sandwich_v2_content(context, fields, marker):
     )
 
 
-def render_sandwich_v3_content(context, fields, marker):
+def render_sandwich_v3_content(context, fields, marker, raw_json_context=False):
     """Zero-duplication split-sandwich prompt: Task/Policy -> Clean Context -> Full Choices & Criteria.
 
     Returns ``(content, choice_char_spans)`` where ``choice_char_spans`` maps each field index to a
@@ -170,7 +170,7 @@ def render_sandwich_v3_content(context, fields, marker):
         parts.append(f"Field: {_sanitize_control_tokens(str(field['name']))}\n")
         parts.append(f"Instructions: {_sanitize_control_tokens(str(field['description']))}\n")
     parts.append("\n## Context\n")
-    parts.append(render_clean_context(context))
+    parts.append(safe_json(context) if raw_json_context else render_clean_context(context))
     parts.append("\n\n## Choices\n")
     cursor = sum(len(s) for s in parts)
     choice_char_spans = []
@@ -243,7 +243,7 @@ def prepare_prompts(tokenizer, context, schema, max_input_tokens, system_role=Tr
     validate_schema(schema)
     if not isinstance(context, str) or not context.strip():
         raise ValueError("Context must be a nonempty string.")
-    if prompt_format not in ("v1", "sandwich_v2", "sandwich_v3"):
+    if prompt_format not in ("v1", "sandwich_v2", "sandwich_v3", "sandwich_v3_rawjson"):
         raise ValueError(f"Unsupported prompt_format: {prompt_format}")
     names = list(schema)
     choices = [choices_for(schema[name]) for name in names]
@@ -260,8 +260,8 @@ def prepare_prompts(tokenizer, context, schema, max_input_tokens, system_role=Tr
     # Split a rendered chat at the final marker, keeping all chat control tokens intact.
     marker = "__PARALLEL_FIELD_TARGET__"
     choice_char_spans = None
-    if prompt_format == "sandwich_v3":
-        content, choice_char_spans = render_sandwich_v3_content(context, fields, marker)
+    if prompt_format in ("sandwich_v3", "sandwich_v3_rawjson"):
+        content, choice_char_spans = render_sandwich_v3_content(context, fields, marker, raw_json_context=(prompt_format == "sandwich_v3_rawjson"))
     elif prompt_format == "sandwich_v2":
         content = render_sandwich_v2_content(context, fields, marker)
     else:
